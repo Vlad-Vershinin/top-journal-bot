@@ -1,0 +1,4 @@
+python-telegram-bot[job-queue]==22.5
+httpx==0.28.1
+python-dotenv==1.1.1
+
