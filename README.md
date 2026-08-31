@@ -134,6 +134,60 @@ docker run -d --restart unless-stopped --env-file .env `
   --name top-journal-bot top-journal-bot
 ```
 
+Для постоянного хранения кэша и логов удобнее использовать Compose:
+
+```bash
+docker compose up -d --build
+```
+
+## 🚚 Автоматический деплой
+
+Workflow `.github/workflows/deploy.yml` при каждом push в `main`:
+
+1. компилирует проект и запускает тесты;
+2. подключается к серверу по SSH;
+3. обновляет репозиторий только через fast-forward;
+4. пересобирает и запускает контейнер через Docker Compose;
+5. ждёт строку `Application started` и завершает деплой ошибкой, если бот не
+   начал polling за 60 секунд.
+
+Первичная подготовка сервера:
+
+```bash
+sudo mkdir -p /opt/top-journal-bot
+sudo chown "$USER":"$USER" /opt/top-journal-bot
+git clone https://github.com/Vlad-Vershinin/top-journal-bot.git /opt/top-journal-bot
+cd /opt/top-journal-bot
+cp .env.example .env
+nano .env
+docker compose up -d --build
+```
+
+Создайте отдельный ключ для GitHub Actions без парольной фразы:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/top-journal-deploy -C github-actions
+cat ~/.ssh/top-journal-deploy.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+```
+
+В настройках GitHub-репозитория откройте **Settings → Environments**, создайте
+окружение `production`, затем добавьте в него secrets:
+
+| Secret | Значение |
+|---|---|
+| `DEPLOY_HOST` | IP или домен сервера |
+| `DEPLOY_USER` | SSH-пользователь с доступом к Docker |
+| `DEPLOY_PORT` | SSH-порт, обычно `22` |
+| `DEPLOY_PATH` | `/opt/top-journal-bot` |
+| `DEPLOY_SSH_PRIVATE_KEY` | содержимое `~/.ssh/top-journal-deploy` |
+| `DEPLOY_KNOWN_HOSTS` | результат `ssh-keyscan -H SERVER_IP` |
+
+Сам `.env` хранится только в `/opt/top-journal-bot` на сервере. Workflow его не
+копирует и не перезаписывает. Каталоги `data` и `logs` смонтированы с хоста,
+поэтому переживают пересборку контейнера. Ручной деплой можно запустить на вкладке
+**Actions → Test and deploy → Run workflow**.
+
 ## 🧩 Архитектура
 
 ```text
