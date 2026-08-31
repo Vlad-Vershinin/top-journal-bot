@@ -129,7 +129,10 @@ class JournalClient:
         if not self._access_token:
             await self._login()
 
-        for attempt in range(2):
+        # A refresh token may be accepted by /auth/refresh while the returned
+        # access token is still rejected by schedule endpoints. In that case,
+        # fall back to a complete username/password login before giving up.
+        for attempt in range(3):
             try:
                 response = await self._client.get(
                     path,
@@ -139,10 +142,16 @@ class JournalClient:
             except httpx.RequestError as exc:
                 raise JournalUnavailable("Сайт Journal сейчас недоступен") from exc
 
-            if response.status_code == 401 and attempt == 0:
-                if not await self._refresh():
+            if response.status_code == 401:
+                if attempt == 0:
+                    if not await self._refresh():
+                        await self._login()
+                    continue
+                if attempt == 1:
+                    self._access_token = None
+                    self._refresh_token = None
                     await self._login()
-                continue
+                    continue
             if response.status_code == 403 or response.status_code >= 500:
                 raise JournalUnavailable(
                     f"Сайт Journal сейчас недоступен (HTTP {response.status_code})"

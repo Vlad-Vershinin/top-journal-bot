@@ -176,7 +176,9 @@ class ScheduleBot:
             )
         except JournalError as exc:
             LOGGER.error("Journal request failed for %s: %s", day, exc)
-            await update.effective_message.reply_text(f"⚠️ {exc}")
+            await update.effective_message.reply_text(
+                self._cached_fallback(day, day, str(exc)), parse_mode=ParseMode.HTML
+            )
 
     async def _reply_range(self, update: Update, start: date, end: date) -> None:
         try:
@@ -191,7 +193,9 @@ class ScheduleBot:
             )
         except JournalError as exc:
             LOGGER.error("Journal request failed for %s..%s: %s", start, end, exc)
-            await update.effective_message.reply_text(f"⚠️ {exc}")
+            await update.effective_message.reply_text(
+                self._cached_fallback(start, end, str(exc)), parse_mode=ParseMode.HTML
+            )
 
     async def daily_notification(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = self.settings.notification_chat_id
@@ -215,7 +219,11 @@ class ScheduleBot:
             )
         except JournalError as exc:
             LOGGER.error("Daily notification failed: %s", exc)
-            await context.bot.send_message(chat_id=chat_id, text=f"⚠️ {exc}")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=self._cached_fallback(day, day, str(exc)),
+                parse_mode=ParseMode.HTML,
+            )
 
     def _cached_fallback(self, start: date, end: date, reason: str) -> str:
         cached = self.cache.load_range(start, end)
