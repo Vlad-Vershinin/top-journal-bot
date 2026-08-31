@@ -23,6 +23,22 @@ if [[ "$actual_sha" != "$expected_sha" ]]; then
 fi
 
 echo "Building and starting container"
+
+# A container created by the old `docker run --name top-journal-bot` command
+# cannot be adopted by Compose. Remove only that legacy container; containers
+# already owned by this Compose project are updated normally by `compose up`.
+if docker container inspect top-journal-bot >/dev/null 2>&1; then
+  compose_project="$(
+    docker inspect \
+      --format '{{ index .Config.Labels "com.docker.compose.project" }}' \
+      top-journal-bot 2>/dev/null || true
+  )"
+  if [[ "$compose_project" != "top-journal-bot" ]]; then
+    echo "Removing legacy non-Compose container top-journal-bot"
+    docker rm -f top-journal-bot
+  fi
+fi
+
 docker compose up -d --build --remove-orphans
 
 echo "Waiting for Telegram polling to start"
@@ -44,4 +60,3 @@ done
 echo "Bot did not start polling within 60 seconds" >&2
 docker compose logs --no-color --tail 100 bot >&2
 exit 1
-
