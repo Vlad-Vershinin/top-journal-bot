@@ -68,6 +68,7 @@ NOTIFICATION_CHAT_ID=ваш_chat_id
 | Переменная | Обязательна | По умолчанию | Назначение |
 |---|:---:|---|---|
 | `TELEGRAM_BOT_TOKEN` | ✅ | — | Токен от BotFather |
+| `TELEGRAM_PROXY_URL` | — | прямое соединение | HTTP/SOCKS5-прокси для Telegram Bot API |
 | `JOURNAL_USERNAME` | ✅ | — | Логин Journal |
 | `JOURNAL_PASSWORD` | ✅ | — | Пароль Journal |
 | `ALLOWED_TELEGRAM_USER_ID` | — | доступ открыт | Разрешённый Telegram user ID |
@@ -78,6 +79,39 @@ NOTIFICATION_CHAT_ID=ваш_chat_id
 | `LOG_DIR` | — | `logs` | Каталог логов |
 | `LOG_LEVEL` | — | `INFO` | Уровень логирования |
 | `CACHE_FILE` | — | `data/schedule_cache.json` | Файл кэша |
+
+## 🌐 Запуск через прокси
+
+Если хостинг блокирует `api.telegram.org`, укажите обычный HTTP- или
+SOCKS5-прокси в `.env`:
+
+```dotenv
+TELEGRAM_PROXY_URL=http://user:password@proxy.example.com:3128
+```
+
+или:
+
+```dotenv
+TELEGRAM_PROXY_URL=socks5://user:password@proxy.example.com:1080
+```
+
+Прокси применяется одновременно к long polling (`getUpdates`) и ко всем
+остальным методам Bot API, включая отправку сообщений. Учётные данные прокси
+не выводятся в лог. Если пароль содержит `@`, `:`, `/`, `#` или другие служебные
+символы URL, их необходимо percent-encode.
+
+После изменения `.env` Docker-контейнер нужно пересоздать, поскольку простой
+`docker restart` не перечитывает `--env-file`:
+
+```bash
+docker rm -f top-journal-bot
+docker build --no-cache -t top-journal-bot .
+docker run -d --restart unless-stopped --env-file .env \
+  --name top-journal-bot top-journal-bot
+```
+
+`tg-ws-proxy` использовать здесь нельзя: он реализует локальный MTProto-прокси
+для Telegram Desktop, тогда как бот работает через HTTPS Telegram Bot API.
 
 ## 🛟 Когда Journal недоступен
 

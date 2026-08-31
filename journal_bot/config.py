@@ -24,6 +24,7 @@ def _required(name: str) -> str:
 @dataclass(frozen=True, slots=True)
 class Settings:
     telegram_bot_token: str
+    telegram_proxy_url: str | None
     journal_username: str
     journal_password: str
     allowed_user_id: int | None
@@ -43,6 +44,7 @@ class Settings:
         hour, minute = map(int, os.getenv("NOTIFICATION_TIME", "07:30").split(":"))
         return cls(
             telegram_bot_token=_required("TELEGRAM_BOT_TOKEN"),
+            telegram_proxy_url=os.getenv("TELEGRAM_PROXY_URL", "").strip() or None,
             journal_username=_required("JOURNAL_USERNAME"),
             journal_password=_required("JOURNAL_PASSWORD"),
             allowed_user_id=_optional_int("ALLOWED_TELEGRAM_USER_ID"),

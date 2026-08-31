@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
+from urllib.parse import urlsplit
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -33,12 +34,20 @@ class ScheduleBot:
         self.cache = ScheduleCache(settings.cache_file, settings.timezone)
 
     def build(self) -> Application:
-        application = (
-            ApplicationBuilder()
-            .token(self.settings.telegram_bot_token)
-            .post_shutdown(self._shutdown)
-            .build()
-        )
+        builder = ApplicationBuilder().token(self.settings.telegram_bot_token)
+        if self.settings.telegram_proxy_url:
+            # Bot API uses two separate HTTP clients: one for getUpdates and
+            # one for all other methods (sendMessage, getMe, deleteWebhook...).
+            # Both must use the proxy, otherwise polling may start but replies
+            # will still fail on networks where Telegram is blocked.
+            builder = builder.proxy(
+                self.settings.telegram_proxy_url
+            ).get_updates_proxy(self.settings.telegram_proxy_url)
+            LOGGER.info(
+                "Telegram proxy enabled: %s",
+                self._safe_proxy_name(self.settings.telegram_proxy_url),
+            )
+        application = builder.post_shutdown(self._shutdown).build()
         application.add_handler(CommandHandler("start", self.start))
         application.add_handler(CommandHandler("id", self.show_id))
         application.add_handler(CommandHandler("today", self.today))
@@ -55,6 +64,14 @@ class ScheduleBot:
                 name="daily_schedule",
             )
         return application
+
+    @staticmethod
+    def _safe_proxy_name(proxy_url: str) -> str:
+        """Return a log-safe proxy address without credentials."""
+        parsed = urlsplit(proxy_url)
+        host = parsed.hostname or "unknown-host"
+        port = f":{parsed.port}" if parsed.port else ""
+        return f"{parsed.scheme or 'proxy'}://{host}{port}"
 
     def _allowed(self, update: Update) -> bool:
         expected = self.settings.allowed_user_id
