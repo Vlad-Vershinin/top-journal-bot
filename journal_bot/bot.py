@@ -4,7 +4,7 @@ import logging
 from datetime import date, datetime, timedelta
 from urllib.parse import urlsplit
 
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -49,7 +49,11 @@ class ScheduleBot:
                 "Telegram proxy enabled: %s",
                 self._safe_proxy_name(self.settings.telegram_proxy_url),
             )
-        application = builder.post_shutdown(self._shutdown).build()
+        application = (
+            builder.post_init(self._post_init)
+            .post_shutdown(self._shutdown)
+            .build()
+        )
         application.add_handler(
             MessageHandler(filters.COMMAND, self.log_command), group=-1
         )
@@ -69,6 +73,18 @@ class ScheduleBot:
                 name="daily_schedule",
             )
         return application
+
+    async def _post_init(self, application: Application) -> None:
+        """Publish the slash-command menu shown by Telegram clients."""
+        commands = [
+            BotCommand("start", "Открыть меню бота"),
+            BotCommand("today", "Расписание на сегодня"),
+            BotCommand("tomorrow", "Расписание на завтра"),
+            BotCommand("week", "Расписание на текущую неделю"),
+            BotCommand("id", "Показать Telegram user ID и chat ID"),
+        ]
+        await application.bot.set_my_commands(commands)
+        LOGGER.info("Telegram command menu published: %s commands", len(commands))
 
     async def log_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
