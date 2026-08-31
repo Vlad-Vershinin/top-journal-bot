@@ -11,6 +11,8 @@ from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 from .cache import ScheduleCache
@@ -48,6 +50,9 @@ class ScheduleBot:
                 self._safe_proxy_name(self.settings.telegram_proxy_url),
             )
         application = builder.post_shutdown(self._shutdown).build()
+        application.add_handler(
+            MessageHandler(filters.COMMAND, self.log_command), group=-1
+        )
         application.add_handler(CommandHandler("start", self.start))
         application.add_handler(CommandHandler("id", self.show_id))
         application.add_handler(CommandHandler("today", self.today))
@@ -64,6 +69,24 @@ class ScheduleBot:
                 name="daily_schedule",
             )
         return application
+
+    async def log_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Write one privacy-conscious audit entry for every bot command."""
+        message = update.effective_message
+        user = update.effective_user
+        chat = update.effective_chat
+        if message is None or not message.text:
+            return
+        raw_command = message.text.split(maxsplit=1)[0]
+        command = raw_command.split("@", maxsplit=1)[0].lower()
+        LOGGER.info(
+            "Command invoked: user_id=%s chat_id=%s command=%s",
+            user.id if user else "unknown",
+            chat.id if chat else "unknown",
+            command,
+        )
 
     @staticmethod
     def _safe_proxy_name(proxy_url: str) -> str:
