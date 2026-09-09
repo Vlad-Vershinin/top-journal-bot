@@ -36,6 +36,7 @@ class Settings:
     log_dir: Path
     log_level: str
     cache_file: Path
+    stats_file: Path
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -58,4 +59,5 @@ class Settings:
             log_dir=Path(os.getenv("LOG_DIR", "logs")),
             log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
             cache_file=Path(os.getenv("CACHE_FILE", "data/schedule_cache.json")),
+            stats_file=Path(os.getenv("STATS_FILE", "data/request_stats.json")),
         )

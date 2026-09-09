@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime, timedelta
+from html import escape
 from urllib.parse import urlsplit
 
 from telegram import BotCommand, Update
@@ -19,6 +20,7 @@ from .cache import ScheduleCache
 from .config import Settings
 from .formatting import format_schedule
 from .journal import JournalClient, JournalError, JournalUnavailable
+from .stats import RequestStats, UserRequestStats
 
 
 LOGGER = logging.getLogger(__name__)
@@ -34,6 +36,7 @@ class ScheduleBot:
             settings.request_timeout_seconds,
         )
         self.cache = ScheduleCache(settings.cache_file, settings.timezone)
+        self.stats = RequestStats(settings.stats_file, settings.timezone)
 
     def build(self) -> Application:
         builder = ApplicationBuilder().token(self.settings.telegram_bot_token)
@@ -62,6 +65,7 @@ class ScheduleBot:
         application.add_handler(CommandHandler("today", self.today))
         application.add_handler(CommandHandler("tomorrow", self.tomorrow))
         application.add_handler(CommandHandler("week", self.week))
+        application.add_handler(CommandHandler("stats", self.show_stats))
         application.add_error_handler(self.on_error)
 
         if self.settings.notification_chat_id is not None:
@@ -103,6 +107,11 @@ class ScheduleBot:
             chat.id if chat else "unknown",
             command,
         )
+        if user is not None:
+            try:
+                self.stats.record(user.id, user.username, user.full_name, command)
+            except OSError:
+                LOGGER.exception("Could not persist command statistics")
 
     @staticmethod
     def _safe_proxy_name(proxy_url: str) -> str:
@@ -145,6 +154,81 @@ class ScheduleBot:
                 f"Ваш user ID: {update.effective_user.id}\n"
                 f"Chat ID: {update.effective_chat.id if update.effective_chat else '—'}"
             )
+
+    async def show_stats(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Show persistent command statistics only to the configured owner."""
+        user = update.effective_user
+        message = update.effective_message
+        owner_id = self.settings.allowed_user_id
+        if message is None or user is None or owner_id is None or user.id != owner_id:
+            LOGGER.warning(
+                "Stats access denied: user_id=%s", user.id if user else "unknown"
+            )
+            return
+
+        if context.args:
+            try:
+                requested_id = int(context.args[0])
+            except ValueError:
+                await message.reply_text("Использование: /stats [user_id]")
+                return
+            stats = self.stats.get_user(requested_id)
+            if stats is None:
+                await message.reply_text(f"Для user ID {requested_id} данных пока нет.")
+                return
+            await message.reply_text(
+                self._format_user_stats(stats), parse_mode=ParseMode.HTML
+            )
+            return
+
+        users = self.stats.all_users()
+        total = sum(item.total for item in users)
+        lines = [
+            "📊 <b>Статистика команд</b>",
+            f"Пользователей: {len(users)}",
+            f"Всего запросов: {total}",
+            "",
+        ]
+        for index, stats in enumerate(users[:30], start=1):
+            lines.append(
+                f"{index}. {self._stats_name(stats)} — {stats.total} "
+                f"(<code>{stats.user_id}</code>)"
+            )
+        if len(users) > 30:
+            lines.append(f"…и ещё {len(users) - 30}")
+        lines.extend(["", "Подробнее: <code>/stats user_id</code>"])
+        await message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+    def _format_user_stats(self, stats: UserRequestStats) -> str:
+        username = f"@{escape(stats.username)}" if stats.username else "—"
+        full_name = escape(stats.full_name) if stats.full_name else "—"
+        commands = sorted(stats.commands.items(), key=lambda item: (-item[1], item[0]))
+        command_lines = [
+            f"<code>{escape(command)}</code> — {count}"
+            for command, count in commands
+        ]
+        return "\n".join(
+            [
+                "📊 <b>Статистика пользователя</b>",
+                f"ID: <code>{stats.user_id}</code>",
+                f"Username: {username}",
+                f"Имя: {full_name}",
+                f"Всего запросов: {stats.total}",
+                f"Первый: {stats.first_seen.astimezone(self.settings.timezone):%d.%m.%Y %H:%M}",
+                f"Последний: {stats.last_seen.astimezone(self.settings.timezone):%d.%m.%Y %H:%M}",
+                "",
+                "<b>Команды:</b>",
+                *(command_lines or ["—"]),
+            ]
+        )
+
+    @staticmethod
+    def _stats_name(stats: UserRequestStats) -> str:
+        if stats.username:
+            return f"@{escape(stats.username)}"
+        return escape(stats.full_name or "без имени")
 
     async def today(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._send_day(update, self._today())
