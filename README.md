@@ -19,7 +19,7 @@
 - `/week` — вся текущая неделя;
 - автоматическое меню команд в интерфейсе Telegram;
 - автоматическая ежедневная рассылка;
-- доступ только для указанного Telegram-пользователя;
+- скрытая статистика доступна только владельцу бота;
 - автоматическое обновление токена Journal;
 - дисковый кэш последнего успешного расписания;
 - резервный ответ из кэша при сетевых ошибках, `403` и `5xx`;
@@ -61,7 +61,7 @@ python -m journal_bot
 Напишите боту `/id`, перенесите полученные значения в `.env` и перезапустите его:
 
 ```dotenv
-ALLOWED_TELEGRAM_USER_ID=ваш_user_id
+ADMIN_TELEGRAM_USER_ID=ваш_user_id
 NOTIFICATION_CHAT_ID=ваш_chat_id
 ```
 
@@ -73,7 +73,7 @@ NOTIFICATION_CHAT_ID=ваш_chat_id
 | `TELEGRAM_PROXY_URL` | — | прямое соединение | HTTP/SOCKS5-прокси для Telegram Bot API |
 | `JOURNAL_USERNAME` | ✅ | — | Логин Journal |
 | `JOURNAL_PASSWORD` | ✅ | — | Пароль Journal |
-| `ALLOWED_TELEGRAM_USER_ID` | — | доступ открыт | Разрешённый Telegram user ID |
+| `ADMIN_TELEGRAM_USER_ID` | — | статистика отключена | Telegram user ID владельца для `/stats` |
 | `NOTIFICATION_CHAT_ID` | — | рассылка выключена | Чат ежедневной рассылки |
 | `NOTIFICATION_TIME` | — | `07:30` | Время рассылки |
 | `TIMEZONE` | — | `Asia/Yekaterinburg` | Часовой пояс |
@@ -139,7 +139,9 @@ docker run -d --restart unless-stopped --env-file .env \
 вызовов каждой команды. Текст сообщений не сохраняется. Скрытая команда `/stats`
 показывает сводку, а `/stats user_id` — данные конкретного пользователя. Она не
 публикуется в меню Telegram и отвечает только пользователю, чей ID задан в
-`ALLOWED_TELEGRAM_USER_ID`; если переменная не заполнена, команда отключена.
+`ADMIN_TELEGRAM_USER_ID`; если переменная не заполнена, команда отключена. Старое
+имя `ALLOWED_TELEGRAM_USER_ID` временно поддерживается как совместимый fallback,
+но больше не ограничивает доступ к расписанию.
 
 ## 🐳 Docker
 

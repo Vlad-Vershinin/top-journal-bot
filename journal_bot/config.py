@@ -27,7 +27,7 @@ class Settings:
     telegram_proxy_url: str | None
     journal_username: str
     journal_password: str
-    allowed_user_id: int | None
+    admin_user_id: int | None
     notification_chat_id: int | None
     notification_time: time
     timezone: ZoneInfo
@@ -48,7 +48,10 @@ class Settings:
             telegram_proxy_url=os.getenv("TELEGRAM_PROXY_URL", "").strip() or None,
             journal_username=_required("JOURNAL_USERNAME"),
             journal_password=_required("JOURNAL_PASSWORD"),
-            allowed_user_id=_optional_int("ALLOWED_TELEGRAM_USER_ID"),
+            admin_user_id=(
+                _optional_int("ADMIN_TELEGRAM_USER_ID")
+                or _optional_int("ALLOWED_TELEGRAM_USER_ID")
+            ),
             notification_chat_id=_optional_int("NOTIFICATION_CHAT_ID"),
             notification_time=time(hour, minute, tzinfo=timezone),
             timezone=timezone,

@@ -120,24 +120,11 @@ class ScheduleBot:
         port = f":{parsed.port}" if parsed.port else ""
         return f"{parsed.scheme or 'proxy'}://{host}{port}"
 
-    def _allowed(self, update: Update) -> bool:
-        expected = self.settings.allowed_user_id
-        return expected is None or (
-            update.effective_user is not None and update.effective_user.id == expected
-        )
-
-    async def _deny_if_needed(self, update: Update) -> bool:
-        if self._allowed(update):
-            return False
-        if update.effective_message:
-            await update.effective_message.reply_text("Этот бот приватный.")
-        return True
-
     def _today(self) -> date:
         return datetime.now(self.settings.timezone).date()
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if await self._deny_if_needed(update) or not update.effective_message:
+        if not update.effective_message:
             return
         await update.effective_message.reply_text(
             "Расписание TOP Academy\n\n"
@@ -160,7 +147,7 @@ class ScheduleBot:
         """Show persistent command statistics only to the configured owner."""
         user = update.effective_user
         message = update.effective_message
-        owner_id = self.settings.allowed_user_id
+        owner_id = self.settings.admin_user_id
         if message is None or user is None or owner_id is None or user.id != owner_id:
             LOGGER.warning(
                 "Stats access denied: user_id=%s", user.id if user else "unknown"
@@ -236,7 +223,7 @@ class ScheduleBot:
         await self._send_day(update, self._today() + timedelta(days=1))
 
     async def week(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if await self._deny_if_needed(update) or not update.effective_message:
+        if not update.effective_message:
             return
         today = self._today()
         start = today - timedelta(days=today.weekday())
@@ -244,7 +231,7 @@ class ScheduleBot:
         await self._reply_range(update, start, end)
 
     async def _send_day(self, update: Update, day: date) -> None:
-        if await self._deny_if_needed(update) or not update.effective_message:
+        if not update.effective_message:
             return
         try:
             lessons = await self.journal.schedule_for_day(day)
