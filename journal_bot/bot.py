@@ -85,7 +85,6 @@ class ScheduleBot:
             BotCommand("today", "Расписание на сегодня"),
             BotCommand("tomorrow", "Расписание на завтра"),
             BotCommand("week", "Расписание на текущую неделю"),
-            BotCommand("id", "Показать Telegram user ID и chat ID"),
         ]
         await application.bot.set_my_commands(commands)
         LOGGER.info("Telegram command menu published: %s commands", len(commands))
