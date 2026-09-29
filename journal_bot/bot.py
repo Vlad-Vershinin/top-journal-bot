@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 from telegram import BotCommand, Update
 from telegram.constants import ParseMode
+from telegram.error import Forbidden, TelegramError
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -20,6 +21,7 @@ from .cache import ScheduleCache
 from .config import Settings
 from .formatting import format_schedule
 from .journal import JournalClient, JournalError, JournalUnavailable
+from .notifications import NotificationStore, schedule_fingerprint, watched_day
 from .stats import RequestStats, UserRequestStats
 
 
@@ -37,6 +39,7 @@ class ScheduleBot:
         )
         self.cache = ScheduleCache(settings.cache_file, settings.timezone)
         self.stats = RequestStats(settings.stats_file, settings.timezone)
+        self.notifications = NotificationStore(settings.notifications_file)
 
     def build(self) -> Application:
         builder = ApplicationBuilder().token(self.settings.telegram_bot_token)
@@ -65,12 +68,21 @@ class ScheduleBot:
         application.add_handler(CommandHandler("today", self.today))
         application.add_handler(CommandHandler("tomorrow", self.tomorrow))
         application.add_handler(CommandHandler("week", self.week))
+        application.add_handler(
+            CommandHandler("notifications", self.manage_notifications)
+        )
         application.add_handler(CommandHandler("stats", self.show_stats))
         application.add_error_handler(self.on_error)
 
+        if application.job_queue is None:
+            raise RuntimeError("Установите зависимость python-telegram-bot[job-queue]")
+        application.job_queue.run_repeating(
+            self.check_schedule_changes,
+            interval=self.settings.notification_check_minutes * 60,
+            first=10,
+            name="schedule_changes",
+        )
         if self.settings.notification_chat_id is not None:
-            if application.job_queue is None:
-                raise RuntimeError("Установите зависимость python-telegram-bot[job-queue]")
             application.job_queue.run_daily(
                 self.daily_notification,
                 time=self.settings.notification_time,
@@ -85,6 +97,7 @@ class ScheduleBot:
             BotCommand("today", "Расписание на сегодня"),
             BotCommand("tomorrow", "Расписание на завтра"),
             BotCommand("week", "Расписание на текущую неделю"),
+            BotCommand("notifications", "Подписаться на изменения расписания"),
         ]
         await application.bot.set_my_commands(commands)
         LOGGER.info("Telegram command menu published: %s commands", len(commands))
@@ -131,8 +144,80 @@ class ScheduleBot:
             "/today — сегодня\n"
             "/tomorrow — завтра\n"
             "/week — текущая неделя\n"
+            "/notifications — уведомления об изменениях\n"
             "/id — ваш Telegram ID"
         )
+
+    async def manage_notifications(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        message = update.effective_message
+        user = update.effective_user
+        chat = update.effective_chat
+        if message is None or user is None or chat is None:
+            return
+        if chat.type != "private":
+            await message.reply_text("Подписка доступна только в личном чате с ботом.")
+            return
+        action = context.args[0].lower() if context.args else "on"
+        if action in ("on", "subscribe"):
+            added = self.notifications.subscribe(user.id)
+            if added:
+                reply = (
+                    "✅ Вы подписались на изменения расписания. "
+                    f"Проверяю его каждые {self.settings.notification_check_minutes} мин. "
+                    "До 16:00 Екб слежу за сегодня, с 16:00 — за завтра.\n"
+                    "Отключить: /notifications off"
+                )
+            else:
+                reply = "Вы уже подписаны. Отключить: /notifications off"
+            await message.reply_text(reply)
+        elif action in ("off", "unsubscribe"):
+            removed = self.notifications.unsubscribe(user.id)
+            await message.reply_text(
+                "Уведомления отключены."
+                if removed else "Вы не подписаны на уведомления."
+            )
+        elif action == "status":
+            active = self.notifications.is_subscribed(user.id)
+            await message.reply_text(
+                "Уведомления включены." if active else "Уведомления выключены."
+            )
+        else:
+            await message.reply_text("Использование: /notifications [on|off|status]")
+
+    async def check_schedule_changes(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not self.notifications.has_subscribers():
+            return
+        day = watched_day(datetime.now(self.settings.timezone))
+        try:
+            lessons = await self.journal.schedule_for_day(day)
+        except JournalError as exc:
+            LOGGER.warning("Schedule change check failed for %s: %s", day, exc)
+            return
+        self.cache.store_range(day, day, lessons)
+        fingerprint = schedule_fingerprint(lessons)
+        recipients = self.notifications.pending(day, fingerprint)
+        if not recipients:
+            return
+        text = (
+            f"🔔 <b>Расписание на {day:%d.%m.%Y} изменилось</b>\n\n"
+            f"{format_schedule(lessons, day, day)}"
+        )
+        for user_id in recipients:
+            if not self.notifications.is_subscribed(user_id):
+                continue
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id, text=text, parse_mode=ParseMode.HTML
+                )
+            except Forbidden:
+                LOGGER.info("Removing inaccessible notification subscriber %s", user_id)
+                self.notifications.unsubscribe(user_id)
+            except TelegramError as exc:
+                LOGGER.warning("Could not notify user_id=%s: %s", user_id, exc)
+            else:
+                self.notifications.mark_sent(user_id, day, fingerprint)
 
     async def show_id(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if update.effective_message and update.effective_user:
