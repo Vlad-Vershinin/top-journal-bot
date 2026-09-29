@@ -3,6 +3,9 @@ from datetime import date, datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+from telegram.constants import ParseMode
+from telegram.error import BadRequest
+
 from journal_bot.bot import ScheduleBot
 from journal_bot.journal import JournalUnavailable, Lesson
 from journal_bot.notifications import (
@@ -90,3 +93,35 @@ def test_change_check_sends_once_after_first_observation(tmp_path):
     assert len(telegram.messages) == 1
     assert telegram.messages[0]["chat_id"] == 123
     assert "Расписание на" in telegram.messages[0]["text"]
+
+
+def test_feedback_has_github_icon_and_no_link_preview():
+    class FakeMessage:
+        calls = []
+
+        async def reply_text(self, text, **kwargs):
+            self.calls.append((text, kwargs))
+
+    message = FakeMessage()
+    asyncio.run(ScheduleBot._reply_notification_feedback(message, "Подписка включена."))
+    text, options = message.calls[0]
+    assert '<tg-emoji emoji-id=' in text
+    assert 'href="https://github.com/Vlad-Vershinin/top-journal-bot/issues/new"' in text
+    assert options["parse_mode"] == ParseMode.HTML
+    assert options["link_preview_options"].is_disabled is True
+
+
+def test_feedback_falls_back_when_custom_emoji_is_unavailable():
+    class FakeMessage:
+        calls = []
+
+        async def reply_text(self, text, **kwargs):
+            self.calls.append((text, kwargs))
+            if len(self.calls) == 1:
+                raise BadRequest("custom emoji unavailable")
+
+    message = FakeMessage()
+    asyncio.run(ScheduleBot._reply_notification_feedback(message, "Подписка включена."))
+    assert len(message.calls) == 2
+    assert "<tg-emoji" not in message.calls[1][0]
+    assert message.calls[1][1]["link_preview_options"].is_disabled is True

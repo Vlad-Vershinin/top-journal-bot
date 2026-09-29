@@ -5,9 +5,9 @@ from datetime import date, datetime, timedelta
 from html import escape
 from urllib.parse import urlsplit
 
-from telegram import BotCommand, Update
+from telegram import BotCommand, LinkPreviewOptions, Message, Update
 from telegram.constants import ParseMode
-from telegram.error import Forbidden, TelegramError
+from telegram.error import BadRequest, Forbidden, TelegramError
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -26,10 +26,15 @@ from .stats import RequestStats, UserRequestStats
 
 
 LOGGER = logging.getLogger(__name__)
+GITHUB_ISSUE_URL = "https://github.com/Vlad-Vershinin/top-journal-bot/issues/new"
 NOTIFICATION_FEEDBACK = (
     "🧪 Уведомления пока в тестировании. Если заметите ошибку:\n"
-    "🐙 [Сообщить об ошибке на GitHub]"
-    "(https://github.com/Vlad-Vershinin/top-journal-bot/issues/new)"
+    '<tg-emoji emoji-id="4999005636604723783">●</tg-emoji> '
+    f'<a href="{GITHUB_ISSUE_URL}">Сообщить об ошибке на GitHub</a>'
+)
+NOTIFICATION_FEEDBACK_FALLBACK = (
+    "🧪 Уведомления пока в тестировании. Если заметите ошибку:\n"
+    f'<a href="{GITHUB_ISSUE_URL}">Сообщить об ошибке на GitHub</a>'
 )
 
 
@@ -176,10 +181,7 @@ class ScheduleBot:
                 )
             else:
                 reply = "Вы уже подписаны. Отключить: /notifications off"
-            await message.reply_text(
-                f"{reply}\n\n{NOTIFICATION_FEEDBACK}",
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            await self._reply_notification_feedback(message, reply)
         elif action in ("off", "unsubscribe"):
             removed = self.notifications.unsubscribe(user.id)
             await message.reply_text(
@@ -189,12 +191,26 @@ class ScheduleBot:
         elif action == "status":
             active = self.notifications.is_subscribed(user.id)
             status = "Уведомления включены." if active else "Уведомления выключены."
-            await message.reply_text(
-                f"{status}\n\n{NOTIFICATION_FEEDBACK}",
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            await self._reply_notification_feedback(message, status)
         else:
             await message.reply_text("Использование: /notifications [on|off|status]")
+
+    @staticmethod
+    async def _reply_notification_feedback(message: Message, reply: str) -> None:
+        options = LinkPreviewOptions(is_disabled=True)
+        try:
+            await message.reply_text(
+                f"{reply}\n\n{NOTIFICATION_FEEDBACK}",
+                parse_mode=ParseMode.HTML,
+                link_preview_options=options,
+            )
+        except BadRequest as exc:
+            LOGGER.warning("GitHub custom emoji unavailable: %s", exc)
+            await message.reply_text(
+                f"{reply}\n\n{NOTIFICATION_FEEDBACK_FALLBACK}",
+                parse_mode=ParseMode.HTML,
+                link_preview_options=options,
+            )
 
     async def check_schedule_changes(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self.notifications.has_subscribers():
