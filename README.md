@@ -132,7 +132,7 @@ docker run -d --restart unless-stopped --env-file .env \
 
 Команда `/notifications` пока в тестировании. Если обнаружите ошибку, напишите нам:
 
-<img src="https://github.githubassets.com/favicons/favicon.svg" alt="GitHub" width="16"> [Создать issue на GitHub](https://github.com/Vlad-Vershinin/top-journal-bot/issues/new).
+🐙 [Создать issue на GitHub](https://github.com/Vlad-Vershinin/top-journal-bot/issues/new).
 
 В личном чате отправьте `/notifications`, чтобы подписаться. Отключить рассылку
 можно командой `/notifications off`, проверить состояние — `/notifications status`.
