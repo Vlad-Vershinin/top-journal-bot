@@ -6,7 +6,7 @@ from html import escape
 from urllib.parse import urlsplit
 
 from telegram import BotCommand, LinkPreviewOptions, Message, Update
-from telegram.constants import ParseMode
+from telegram.constants import MessageEntityType, ParseMode
 from telegram.error import BadRequest, Forbidden, TelegramError
 from telegram.ext import (
     Application,
@@ -29,7 +29,7 @@ LOGGER = logging.getLogger(__name__)
 GITHUB_ISSUE_URL = "https://github.com/Vlad-Vershinin/top-journal-bot/issues/new"
 NOTIFICATION_FEEDBACK = (
     "🧪 Уведомления пока в тестировании. Если заметите ошибку:\n"
-    '<tg-emoji emoji-id="4999005636604723783">●</tg-emoji> '
+    '<tg-emoji emoji-id="4999005636604723783">🐙</tg-emoji> '
     f'<a href="{GITHUB_ISSUE_URL}">Сообщить об ошибке на GitHub</a>'
 )
 NOTIFICATION_FEEDBACK_FALLBACK = (
@@ -199,7 +199,7 @@ class ScheduleBot:
     async def _reply_notification_feedback(message: Message, reply: str) -> None:
         options = LinkPreviewOptions(is_disabled=True)
         try:
-            await message.reply_text(
+            sent = await message.reply_text(
                 f"{reply}\n\n{NOTIFICATION_FEEDBACK}",
                 parse_mode=ParseMode.HTML,
                 link_preview_options=options,
@@ -207,6 +207,17 @@ class ScheduleBot:
         except BadRequest as exc:
             LOGGER.warning("GitHub custom emoji unavailable: %s", exc)
             await message.reply_text(
+                f"{reply}\n\n{NOTIFICATION_FEEDBACK_FALLBACK}",
+                parse_mode=ParseMode.HTML,
+                link_preview_options=options,
+            )
+            return
+        if not any(
+            entity.type == MessageEntityType.CUSTOM_EMOJI
+            for entity in (sent.entities or [])
+        ):
+            LOGGER.warning("Telegram did not render the GitHub custom emoji")
+            await sent.edit_text(
                 f"{reply}\n\n{NOTIFICATION_FEEDBACK_FALLBACK}",
                 parse_mode=ParseMode.HTML,
                 link_preview_options=options,

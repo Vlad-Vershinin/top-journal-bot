@@ -101,11 +101,13 @@ def test_feedback_has_github_icon_and_no_link_preview():
 
         async def reply_text(self, text, **kwargs):
             self.calls.append((text, kwargs))
+            return SimpleNamespace(entities=[SimpleNamespace(type="custom_emoji")])
 
     message = FakeMessage()
     asyncio.run(ScheduleBot._reply_notification_feedback(message, "Подписка включена."))
     text, options = message.calls[0]
     assert '<tg-emoji emoji-id=' in text
+    assert ">🐙</tg-emoji>" in text
     assert 'href="https://github.com/Vlad-Vershinin/top-journal-bot/issues/new"' in text
     assert options["parse_mode"] == ParseMode.HTML
     assert options["link_preview_options"].is_disabled is True
@@ -125,3 +127,24 @@ def test_feedback_falls_back_when_custom_emoji_is_unavailable():
     assert len(message.calls) == 2
     assert "<tg-emoji" not in message.calls[1][0]
     assert message.calls[1][1]["link_preview_options"].is_disabled is True
+
+
+def test_feedback_removes_fallback_emoji_if_telegram_ignores_custom_emoji():
+    class FakeSentMessage:
+        entities = []
+        edits = []
+
+        async def edit_text(self, text, **kwargs):
+            self.edits.append((text, kwargs))
+
+    class FakeMessage:
+        async def reply_text(self, text, **kwargs):
+            return sent
+
+    sent = FakeSentMessage()
+    asyncio.run(
+        ScheduleBot._reply_notification_feedback(FakeMessage(), "Подписка включена.")
+    )
+    assert len(sent.edits) == 1
+    assert "🐙" not in sent.edits[0][0]
+    assert sent.edits[0][1]["link_preview_options"].is_disabled is True
