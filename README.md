@@ -130,6 +130,10 @@ docker run -d --restart unless-stopped --env-file .env \
 
 ## 🔔 Уведомления об изменениях
 
+Команда `/notifications` пока в тестировании. Если обнаружите ошибку, напишите нам:
+
+🐙 [создать issue на GitHub](https://github.com/Vlad-Vershinin/top-journal-bot/issues/new).
+
 В личном чате отправьте `/notifications`, чтобы подписаться. Отключить рассылку
 можно командой `/notifications off`, проверить состояние — `/notifications status`.
 По умолчанию бот проверяет расписание каждые 10 минут: до 16:00 по Екатеринбургу — на сегодня,

@@ -26,6 +26,11 @@ from .stats import RequestStats, UserRequestStats
 
 
 LOGGER = logging.getLogger(__name__)
+NOTIFICATION_FEEDBACK = (
+    "🧪 Уведомления пока в тестировании. Если заметите ошибку:\n"
+    "🐙 [Сообщить об ошибке на GitHub]"
+    "(https://github.com/Vlad-Vershinin/top-journal-bot/issues/new)"
+)
 
 
 class ScheduleBot:
@@ -97,7 +102,7 @@ class ScheduleBot:
             BotCommand("today", "Расписание на сегодня"),
             BotCommand("tomorrow", "Расписание на завтра"),
             BotCommand("week", "Расписание на текущую неделю"),
-            BotCommand("notifications", "Подписаться на изменения расписания"),
+            BotCommand("notifications", "Уведомления об изменениях (тестирование)"),
         ]
         await application.bot.set_my_commands(commands)
         LOGGER.info("Telegram command menu published: %s commands", len(commands))
@@ -144,7 +149,7 @@ class ScheduleBot:
             "/today — сегодня\n"
             "/tomorrow — завтра\n"
             "/week — текущая неделя\n"
-            "/notifications — уведомления об изменениях\n"
+            "/notifications — уведомления об изменениях (тестирование)\n"
             "/id — ваш Telegram ID"
         )
 
@@ -171,7 +176,10 @@ class ScheduleBot:
                 )
             else:
                 reply = "Вы уже подписаны. Отключить: /notifications off"
-            await message.reply_text(reply)
+            await message.reply_text(
+                f"{reply}\n\n{NOTIFICATION_FEEDBACK}",
+                parse_mode=ParseMode.MARKDOWN,
+            )
         elif action in ("off", "unsubscribe"):
             removed = self.notifications.unsubscribe(user.id)
             await message.reply_text(
@@ -180,8 +188,10 @@ class ScheduleBot:
             )
         elif action == "status":
             active = self.notifications.is_subscribed(user.id)
+            status = "Уведомления включены." if active else "Уведомления выключены."
             await message.reply_text(
-                "Уведомления включены." if active else "Уведомления выключены."
+                f"{status}\n\n{NOTIFICATION_FEEDBACK}",
+                parse_mode=ParseMode.MARKDOWN,
             )
         else:
             await message.reply_text("Использование: /notifications [on|off|status]")
