@@ -20,8 +20,13 @@ from telegram.ext import (
 from .cache import ScheduleCache
 from .config import Settings
 from .formatting import format_schedule
-from .journal import JournalClient, JournalError, JournalUnavailable
-from .notifications import NotificationStore, schedule_fingerprint, watched_day
+from .journal import JournalClient, JournalError, JournalUnavailable, Lesson
+from .notifications import (
+    EKATERINBURG,
+    NotificationStore,
+    schedule_fingerprint,
+    watched_day,
+)
 from .stats import RequestStats, UserRequestStats
 
 
@@ -74,7 +79,7 @@ class ScheduleBot:
         application.add_handler(CommandHandler("tomorrow", self.tomorrow))
         application.add_handler(CommandHandler("week", self.week))
         application.add_handler(
-            CommandHandler("notifications", self.manage_notifications)
+            CommandHandler(("notifications", "notification"), self.manage_notifications)
         )
         application.add_handler(CommandHandler("stats", self.show_stats))
         application.add_error_handler(self.on_error)
@@ -102,7 +107,7 @@ class ScheduleBot:
             BotCommand("today", "Расписание на сегодня"),
             BotCommand("tomorrow", "Расписание на завтра"),
             BotCommand("week", "Расписание на текущую неделю"),
-            BotCommand("notifications", "Уведомления об изменениях (тестирование)"),
+            BotCommand("notifications", "Радар изменений расписания (тестирование)"),
         ]
         await application.bot.set_my_commands(commands)
         LOGGER.info("Telegram command menu published: %s commands", len(commands))
@@ -149,7 +154,7 @@ class ScheduleBot:
             "/today — сегодня\n"
             "/tomorrow — завтра\n"
             "/week — текущая неделя\n"
-            "/notifications — уведомления об изменениях (тестирование)\n"
+            "/notifications — радар изменений (тестирование)\n"
             "/id — ваш Telegram ID"
         )
 
@@ -169,23 +174,27 @@ class ScheduleBot:
             added = self.notifications.subscribe(user.id)
             if added:
                 reply = (
-                    "✅ Вы подписались на изменения расписания. "
-                    f"Проверяю его каждые {self.settings.notification_check_minutes} мин. "
-                    "До 16:00 Екб слежу за сегодня, с 16:00 — за завтра.\n"
-                    "Отключить: /notifications off"
+                    "📡 Радар расписания включён!\n"
+                    f"Каждые {self.settings.notification_check_minutes} мин сверяю пары: "
+                    "до конца последней слежу за сегодня, затем — за завтра. "
+                    "Если расписание поменяется, пришлю новую версию.\n"
+                    "Выключить радар: /notifications off"
                 )
             else:
-                reply = "Вы уже подписаны. Отключить: /notifications off"
+                reply = "📡 Радар уже работает. Выключить: /notifications off"
             await self._reply_notification_feedback(message, reply)
         elif action in ("off", "unsubscribe"):
             removed = self.notifications.unsubscribe(user.id)
             await message.reply_text(
-                "Уведомления отключены."
-                if removed else "Вы не подписаны на уведомления."
+                "📴 Радар расписания выключен. Включить: /notifications"
+                if removed else "📴 Радар пока спит. Включить: /notifications"
             )
         elif action == "status":
             active = self.notifications.is_subscribed(user.id)
-            status = "Уведомления включены." if active else "Уведомления выключены."
+            status = (
+                "📡 Радар включён: сегодня до конца последней пары, потом завтра."
+                if active else "📴 Радар пока спит. Включить: /notifications"
+            )
             await self._reply_notification_feedback(message, status)
         else:
             await message.reply_text("Использование: /notifications [on|off|status]")
@@ -201,12 +210,35 @@ class ScheduleBot:
     async def check_schedule_changes(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self.notifications.has_subscribers():
             return
-        day = watched_day(datetime.now(self.settings.timezone))
+        now = datetime.now(self.settings.timezone)
+        today = now.astimezone(EKATERINBURG).date()
+        previous_today = self.cache.load_range(today, today)
+        try:
+            today_lessons = await self.journal.schedule_for_day(today)
+        except JournalError as exc:
+            LOGGER.warning("Schedule change check failed for %s: %s", today, exc)
+            return
+        day = watched_day(now, today_lessons)
+        was_watching_today = (
+            previous_today is not None
+            and watched_day(now, previous_today.lessons) == today
+        )
+        if day == today or was_watching_today:
+            await self._notify_schedule_change(context, today, today_lessons)
+        else:
+            self.cache.store_range(today, today, today_lessons)
+        if day == today:
+            return
         try:
             lessons = await self.journal.schedule_for_day(day)
         except JournalError as exc:
             LOGGER.warning("Schedule change check failed for %s: %s", day, exc)
             return
+        await self._notify_schedule_change(context, day, lessons)
+
+    async def _notify_schedule_change(
+        self, context: ContextTypes.DEFAULT_TYPE, day: date, lessons: list[Lesson]
+    ) -> None:
         self.cache.store_range(day, day, lessons)
         fingerprint = schedule_fingerprint(lessons)
         recipients = self.notifications.pending(day, fingerprint)

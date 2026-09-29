@@ -6,7 +6,7 @@ import logging
 import os
 import threading
 from dataclasses import asdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -18,9 +18,25 @@ LOGGER = logging.getLogger(__name__)
 EKATERINBURG = ZoneInfo("Asia/Yekaterinburg")
 
 
-def watched_day(now: datetime) -> date:
+def watched_day(now: datetime, today_lessons: list[Lesson]) -> date:
+    """Watch today until its final lesson ends, then switch to tomorrow."""
     local = now.astimezone(EKATERINBURG)
-    return local.date() + timedelta(days=1) if local.hour >= 16 else local.date()
+    lessons = [lesson for lesson in today_lessons if lesson.day == local.date()]
+    if not lessons:
+        return local.date() + timedelta(days=1)
+
+    ends: list[datetime] = []
+    for lesson in lessons:
+        try:
+            finish = time.fromisoformat(lesson.finishes_at.strip())
+        except ValueError:
+            LOGGER.warning("Missing or invalid lesson end time for %s", local.date())
+            return local.date()
+        end = datetime.combine(local.date(), finish)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=EKATERINBURG)
+        ends.append(end.astimezone(EKATERINBURG))
+    return local.date() if local < max(ends) else local.date() + timedelta(days=1)
 
 
 def schedule_fingerprint(lessons: list[Lesson]) -> str:
