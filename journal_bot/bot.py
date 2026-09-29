@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from html import escape
 from urllib.parse import urlsplit
 
-from telegram import BotCommand, LinkPreviewOptions, Message, Update
+from telegram import BotCommand, LinkPreviewOptions, Message, ReplyKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import Forbidden, TelegramError
 from telegram.ext import (
@@ -35,6 +35,12 @@ GITHUB_ISSUE_URL = "https://github.com/Vlad-Vershinin/top-journal-bot/issues/new
 NOTIFICATION_FEEDBACK = (
     "🧪 Уведомления пока в тестировании. Если заметите ошибку:\n"
     f'🐙 <a href="{GITHUB_ISSUE_URL}">Сообщить об ошибке на GitHub</a>'
+)
+SCHEDULE_KEYBOARD = ReplyKeyboardMarkup(
+    [["📅 Сегодня", "📆 Завтра"], ["🗓 Неделя"]],
+    resize_keyboard=True,
+    is_persistent=True,
+    input_field_placeholder="Какое расписание показать?",
 )
 
 
@@ -73,6 +79,12 @@ class ScheduleBot:
         application.add_handler(
             MessageHandler(filters.COMMAND, self.log_command), group=-1
         )
+        application.add_handler(
+            MessageHandler(
+                filters.Regex(r"^(📅 Сегодня|📆 Завтра|🗓 Неделя)$"),
+                self.schedule_button,
+            )
+        )
         application.add_handler(CommandHandler("start", self.start))
         application.add_handler(CommandHandler("id", self.show_id))
         application.add_handler(CommandHandler("today", self.today))
@@ -107,7 +119,7 @@ class ScheduleBot:
             BotCommand("today", "Расписание на сегодня"),
             BotCommand("tomorrow", "Расписание на завтра"),
             BotCommand("week", "Расписание на текущую неделю"),
-            BotCommand("notifications", "Радар изменений расписания (тестирование)"),
+            BotCommand("notifications", "Уведомления об изменениях (тестирование)"),
         ]
         await application.bot.set_my_commands(commands)
         LOGGER.info("Telegram command menu published: %s commands", len(commands))
@@ -117,23 +129,44 @@ class ScheduleBot:
     ) -> None:
         """Write one privacy-conscious audit entry for every bot command."""
         message = update.effective_message
-        user = update.effective_user
-        chat = update.effective_chat
         if message is None or not message.text:
             return
         raw_command = message.text.split(maxsplit=1)[0]
         command = raw_command.split("@", maxsplit=1)[0].lower()
+        self._record_command(update, command, "command")
+
+    def _record_command(self, update: Update, command: str, source: str) -> None:
+        user = update.effective_user
+        chat = update.effective_chat
         LOGGER.info(
-            "Command invoked: user_id=%s chat_id=%s command=%s",
+            "Command invoked: user_id=%s chat_id=%s command=%s source=%s",
             user.id if user else "unknown",
             chat.id if chat else "unknown",
             command,
+            source,
         )
         if user is not None:
             try:
                 self.stats.record(user.id, user.username, user.full_name, command)
             except OSError:
                 LOGGER.exception("Could not persist command statistics")
+
+    async def schedule_button(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        message = update.effective_message
+        if message is None:
+            return
+        actions = {
+            "📅 Сегодня": ("/today", self.today),
+            "📆 Завтра": ("/tomorrow", self.tomorrow),
+            "🗓 Неделя": ("/week", self.week),
+        }
+        action = actions.get(message.text)
+        if action is not None:
+            command, handler = action
+            self._record_command(update, command, "keyboard")
+            await handler(update, context)
 
     @staticmethod
     def _safe_proxy_name(proxy_url: str) -> str:
@@ -151,11 +184,10 @@ class ScheduleBot:
             return
         await update.effective_message.reply_text(
             "Расписание TOP Academy\n\n"
-            "/today — сегодня\n"
-            "/tomorrow — завтра\n"
-            "/week — текущая неделя\n"
-            "/notifications — радар изменений (тестирование)\n"
-            "/id — ваш Telegram ID"
+            "Выберите расписание кнопкой ниже.\n\n"
+            "/notifications — уведомления об изменениях (тестирование)\n"
+            "/id — ваш Telegram ID",
+            reply_markup=SCHEDULE_KEYBOARD,
         )
 
     async def manage_notifications(
@@ -174,26 +206,27 @@ class ScheduleBot:
             added = self.notifications.subscribe(user.id)
             if added:
                 reply = (
-                    "📡 Радар расписания включён!\n"
-                    f"Каждые {self.settings.notification_check_minutes} мин сверяю пары: "
-                    "до конца последней слежу за сегодня, затем — за завтра. "
-                    "Если расписание поменяется, пришлю новую версию.\n"
-                    "Выключить радар: /notifications off"
+                    "Уведомления об изменениях включены.\n"
+                    f"Проверяю расписание каждые {self.settings.notification_check_minutes} мин. "
+                    "До окончания последней пары слежу за сегодня, затем — за завтра. "
+                    "Если пары изменятся, пришлю новое расписание.\n"
+                    "Отключить: /notifications off"
                 )
             else:
-                reply = "📡 Радар уже работает. Выключить: /notifications off"
+                reply = "Уведомления уже включены. Отключить: /notifications off"
             await self._reply_notification_feedback(message, reply)
         elif action in ("off", "unsubscribe"):
             removed = self.notifications.unsubscribe(user.id)
             await message.reply_text(
-                "📴 Радар расписания выключен. Включить: /notifications"
-                if removed else "📴 Радар пока спит. Включить: /notifications"
+                "Уведомления отключены. Включить: /notifications"
+                if removed else "Уведомления уже выключены. Включить: /notifications",
+                reply_markup=SCHEDULE_KEYBOARD,
             )
         elif action == "status":
             active = self.notifications.is_subscribed(user.id)
             status = (
-                "📡 Радар включён: сегодня до конца последней пары, потом завтра."
-                if active else "📴 Радар пока спит. Включить: /notifications"
+                "Уведомления включены: сегодня до конца последней пары, потом завтра."
+                if active else "Уведомления выключены. Включить: /notifications"
             )
             await self._reply_notification_feedback(message, status)
         else:
@@ -205,6 +238,7 @@ class ScheduleBot:
             f"{reply}\n\n{NOTIFICATION_FEEDBACK}",
             parse_mode=ParseMode.HTML,
             link_preview_options=LinkPreviewOptions(is_disabled=True),
+            reply_markup=SCHEDULE_KEYBOARD,
         )
 
     async def check_schedule_changes(self, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -267,7 +301,8 @@ class ScheduleBot:
         if update.effective_message and update.effective_user:
             await update.effective_message.reply_text(
                 f"Ваш user ID: {update.effective_user.id}\n"
-                f"Chat ID: {update.effective_chat.id if update.effective_chat else '—'}"
+                f"Chat ID: {update.effective_chat.id if update.effective_chat else '—'}",
+                reply_markup=SCHEDULE_KEYBOARD,
             )
 
     async def show_stats(
@@ -366,17 +401,23 @@ class ScheduleBot:
             lessons = await self.journal.schedule_for_day(day)
             self.cache.store_range(day, day, lessons)
             await update.effective_message.reply_text(
-                format_schedule(lessons, day, day), parse_mode=ParseMode.HTML
+                format_schedule(lessons, day, day),
+                parse_mode=ParseMode.HTML,
+                reply_markup=SCHEDULE_KEYBOARD,
             )
         except JournalUnavailable as exc:
             LOGGER.warning("Journal unavailable for %s: %s", day, exc)
             await update.effective_message.reply_text(
-                self._cached_fallback(day, day, str(exc)), parse_mode=ParseMode.HTML
+                self._cached_fallback(day, day, str(exc)),
+                parse_mode=ParseMode.HTML,
+                reply_markup=SCHEDULE_KEYBOARD,
             )
         except JournalError as exc:
             LOGGER.error("Journal request failed for %s: %s", day, exc)
             await update.effective_message.reply_text(
-                self._cached_fallback(day, day, str(exc)), parse_mode=ParseMode.HTML
+                self._cached_fallback(day, day, str(exc)),
+                parse_mode=ParseMode.HTML,
+                reply_markup=SCHEDULE_KEYBOARD,
             )
 
     async def _reply_range(self, update: Update, start: date, end: date) -> None:
@@ -384,16 +425,22 @@ class ScheduleBot:
             lessons = await self.journal.schedule_for_range(start, end)
             self.cache.store_range(start, end, lessons)
             text = format_schedule(lessons, start, end)
-            await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+            await update.effective_message.reply_text(
+                text, parse_mode=ParseMode.HTML, reply_markup=SCHEDULE_KEYBOARD
+            )
         except JournalUnavailable as exc:
             LOGGER.warning("Journal unavailable for %s..%s: %s", start, end, exc)
             await update.effective_message.reply_text(
-                self._cached_fallback(start, end, str(exc)), parse_mode=ParseMode.HTML
+                self._cached_fallback(start, end, str(exc)),
+                parse_mode=ParseMode.HTML,
+                reply_markup=SCHEDULE_KEYBOARD,
             )
         except JournalError as exc:
             LOGGER.error("Journal request failed for %s..%s: %s", start, end, exc)
             await update.effective_message.reply_text(
-                self._cached_fallback(start, end, str(exc)), parse_mode=ParseMode.HTML
+                self._cached_fallback(start, end, str(exc)),
+                parse_mode=ParseMode.HTML,
+                reply_markup=SCHEDULE_KEYBOARD,
             )
 
     async def daily_notification(self, context: ContextTypes.DEFAULT_TYPE) -> None:
