@@ -125,7 +125,7 @@ def test_http_api_requires_owner_and_ignores_client_payout(tmp_path):
         async with TestClient(TestServer(create_app(settings))) as client:
             response = await client.get("/")
             assert response.status == 200
-            assert "FRUIT CLUB" in await response.text()
+            assert "PLAY ROOM" in await response.text()
             for action in ("state", "spin", "refill", "leaderboard", "history"):
                 response = await client.post(f"/api/{action}", json={"init_data": signed_data(999)})
                 assert response.status == 403

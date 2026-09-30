@@ -173,12 +173,12 @@ docker run -d --restart unless-stopped --env-file .env \
 в BotFather ([правила Telegram](https://core.telegram.org/bots/api#formatting-options)).
 Если Telegram отклонит эмодзи, ответ подписки будет отправлен с обычным 🐙.
 
-## 🎰 Закрытая Mini App
+## 🎮 Мини-игры
 
-Владелец может открыть `/casino`: Fruit Club с тремя фруктовыми барабанами,
-виртуальным балансом и историей. Команда скрыта, а API допускает только
-`ADMIN_TELEGRAM_USER_ID` после проверки подписи Telegram. Реальных денег,
-покупок и вывода нет. Mini App запускается отдельным Docker-профилем;
+Владелец может открыть `/play`: Play Room с меню, профилем Telegram,
+режимами, общим балансом, лидербордом и историей игр. Первый режим —
+«Фруктовый микс». Команда скрыта, а API допускает только
+`ADMIN_TELEGRAM_USER_ID` после проверки подписи Telegram. Mini App запускается отдельным Docker-профилем;
 без домена можно использовать тестовый HTTPS-туннель.
 Подключение: [docs/casino.md](docs/casino.md).
 
