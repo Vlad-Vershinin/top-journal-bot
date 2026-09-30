@@ -23,6 +23,7 @@ class UserRequestStats:
     last_seen: datetime
     total: int
     commands: dict[str, int]
+    sources: dict[str, int]
 
 
 class RequestStats:
@@ -39,6 +40,8 @@ class RequestStats:
         username: str | None,
         full_name: str | None,
         command: str,
+        *,
+        source: str = "command",
     ) -> None:
         now = datetime.now(self.timezone).isoformat()
         with self._lock:
@@ -61,6 +64,8 @@ class RequestStats:
             entry["total"] = int(entry.get("total", 0)) + 1
             commands = entry.setdefault("commands", {})
             commands[command] = int(commands.get(command, 0)) + 1
+            sources = entry.setdefault("sources", {})
+            sources[source] = int(sources.get(source, 0)) + 1
             self._write(data)
 
     def get_user(self, user_id: int) -> UserRequestStats | None:
@@ -112,6 +117,10 @@ class RequestStats:
                 commands={
                     str(command): int(count)
                     for command, count in entry.get("commands", {}).items()
+                },
+                sources={
+                    str(source): int(count)
+                    for source, count in entry.get("sources", {}).items()
                 },
             )
         except (KeyError, TypeError, ValueError):

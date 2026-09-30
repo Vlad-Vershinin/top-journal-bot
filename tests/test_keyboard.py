@@ -2,8 +2,10 @@ import asyncio
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from zoneinfo import ZoneInfo
 
 from journal_bot.bot import SCHEDULE_KEYBOARD, ScheduleBot
+from journal_bot.stats import RequestStats
 
 
 def test_start_shows_persistent_schedule_keyboard():
@@ -23,9 +25,10 @@ def test_start_shows_persistent_schedule_keyboard():
     ]
 
 
-def test_schedule_buttons_use_existing_handlers_and_count_as_commands():
+def test_schedule_buttons_use_existing_handlers_and_count_as_commands(tmp_path):
     bot = object.__new__(ScheduleBot)
-    bot.stats = SimpleNamespace(record=Mock())
+    path = tmp_path / "stats.json"
+    bot.stats = RequestStats(path, ZoneInfo("UTC"))
     bot.today = AsyncMock()
     bot.tomorrow = AsyncMock()
     bot.week = AsyncMock()
@@ -44,9 +47,16 @@ def test_schedule_buttons_use_existing_handlers_and_count_as_commands():
     bot.today.assert_awaited_once_with(update, context)
     bot.tomorrow.assert_awaited_once_with(update, context)
     bot.week.assert_awaited_once_with(update, context)
-    assert [call.args[-1] for call in bot.stats.record.call_args_list] == [
-        "/today", "/tomorrow", "/week"
-    ]
+    restored = RequestStats(path, ZoneInfo("UTC")).get_user(123)
+    assert restored.total == 3
+    assert restored.commands == {"/today": 1, "/tomorrow": 1, "/week": 1}
+    assert restored.sources == {"keyboard": 3}
+    message.text = "/today"
+    asyncio.run(bot.log_command(update, context))
+    restored = RequestStats(path, ZoneInfo("UTC")).get_user(123)
+    assert restored.total == 4
+    assert restored.commands["/today"] == 2
+    assert restored.sources == {"keyboard": 3, "command": 1}
 
 
 def test_schedule_response_keeps_keyboard_visible():

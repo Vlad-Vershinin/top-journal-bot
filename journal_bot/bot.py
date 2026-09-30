@@ -153,7 +153,9 @@ class ScheduleBot:
         )
         if user is not None:
             try:
-                self.stats.record(user.id, user.username, user.full_name, command)
+                self.stats.record(
+                    user.id, user.username, user.full_name, command, source=source
+                )
             except OSError:
                 LOGGER.exception("Could not persist command statistics")
 
@@ -347,6 +349,7 @@ class ScheduleBot:
             "📊 <b>Статистика команд</b>",
             f"Пользователей: {len(users)}",
             f"Всего запросов: {total}",
+            *self._stats_source_lines(users),
             "",
         ]
         for index, stats in enumerate(users[:30], start=1):
@@ -374,6 +377,7 @@ class ScheduleBot:
                 f"Username: {username}",
                 f"Имя: {full_name}",
                 f"Всего запросов: {stats.total}",
+                *self._stats_source_lines([stats]),
                 f"Первый: {stats.first_seen.astimezone(self.settings.timezone):%d.%m.%Y %H:%M}",
                 f"Последний: {stats.last_seen.astimezone(self.settings.timezone):%d.%m.%Y %H:%M}",
                 "",
@@ -381,6 +385,16 @@ class ScheduleBot:
                 *(command_lines or ["—"]),
             ]
         )
+
+    @staticmethod
+    def _stats_source_lines(users: list[UserRequestStats]) -> list[str]:
+        keyboard = sum(stats.sources.get("keyboard", 0) for stats in users)
+        commands = sum(stats.sources.get("command", 0) for stats in users)
+        unclassified = sum(stats.total for stats in users) - keyboard - commands
+        lines = [f"С клавиатуры: {keyboard}", f"Командами: {commands}"]
+        if unclassified > 0:
+            lines.append(f"Ранее без разделения: {unclassified}")
+        return lines
 
     @staticmethod
     def _stats_name(stats: UserRequestStats) -> str:
