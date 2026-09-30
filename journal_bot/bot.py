@@ -7,8 +7,8 @@ from urllib.parse import urlsplit
 
 from apscheduler.triggers.cron import CronTrigger
 from telegram import (
-    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions,
-    Message, ReplyKeyboardMarkup, Update, WebAppInfo,
+    BotCommand, LinkPreviewOptions,
+    Message, ReplyKeyboardMarkup, Update,
 )
 from telegram.constants import MessageEntityType, ParseMode
 from telegram.error import BadRequest, Forbidden, TelegramError
@@ -22,7 +22,7 @@ from telegram.ext import (
 )
 
 from .cache import ScheduleCache
-from .config import Settings, can_play
+from .config import Settings
 from .formatting import format_change_notification, format_schedule
 from .journal import JournalClient, JournalError, JournalUnavailable, Lesson
 from .notifications import (
@@ -101,7 +101,6 @@ class ScheduleBot:
         )
         application.add_handler(CommandHandler("stats", self.show_stats))
         application.add_handler(CommandHandler("github_icon", self.set_github_icon))
-        application.add_handler(CommandHandler("play", self.open_play))
         application.add_error_handler(self.on_error)
 
         if application.job_queue is None:
@@ -384,32 +383,6 @@ class ScheduleBot:
                 f"Chat ID: {update.effective_chat.id if update.effective_chat else '—'}",
                 reply_markup=SCHEDULE_KEYBOARD,
             )
-
-    async def open_play(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        message, user, chat = update.effective_message, update.effective_user, update.effective_chat
-        if message is None or user is None or not can_play(
-            user.id, self.settings.admin_user_id, getattr(self.settings, "play_tester_ids", ())
-        ):
-            return
-        if chat is None or chat.type != "private":
-            await message.reply_text("Откройте /play в личном чате с ботом.")
-            return
-        url = self.settings.play_url
-        parsed = urlsplit(url or "")
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            await message.reply_text(
-                "Mini App подготовлена. Для запуска нужно подключить HTTPS-адрес "
-                "и указать его в PLAY_URL на сервере."
-            )
-            return
-        await message.reply_text(
-            "🎮 Play Room — мини-игры.\n"
-            "Выбирай режим, собирай монеты и поднимайся в топе. "
-            "Сейчас идёт закрытый тест.",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🎮 Открыть мини-игры", web_app=WebAppInfo(url=url))
-            ]]),
-        )
 
     async def show_stats(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
