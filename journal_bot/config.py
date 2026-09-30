@@ -38,7 +38,7 @@ class Settings:
     cache_file: Path
     stats_file: Path
     notifications_file: Path
-    casino_url: str | None = None
+    play_url: str | None = None
     casino_db_file: Path = Path("data/casino.sqlite3")
 
     @classmethod
@@ -69,6 +69,6 @@ class Settings:
             notifications_file=Path(
                 os.getenv("NOTIFICATIONS_FILE", "data/notifications.json")
             ),
-            casino_url=os.getenv("CASINO_URL", "").strip() or None,
+            play_url=(os.getenv("PLAY_URL", "").strip() or os.getenv("CASINO_URL", "").strip() or None),
             casino_db_file=Path(os.getenv("CASINO_DB_FILE", "data/casino.sqlite3")),
         )

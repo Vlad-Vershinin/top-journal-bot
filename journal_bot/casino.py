@@ -26,7 +26,7 @@ class CasinoError(Exception):
 def validate_init_data(raw: str, token: str, owner: int | None, now: float | None = None) -> int:
     """Validate Telegram's HMAC before using the user ID (never initDataUnsafe)."""
     if owner is None or not isinstance(raw, str) or not raw or len(raw) > 8192:
-        raise CasinoError("Откройте игру через /casino в Telegram.", 401)
+        raise CasinoError("Откройте мини-игры через /play в Telegram.", 401)
     try:
         pairs = parse_qsl(raw, keep_blank_values=True, strict_parsing=True, max_num_fields=30)
         fields = dict(pairs)
@@ -47,7 +47,7 @@ def validate_init_data(raw: str, token: str, owner: int | None, now: float | Non
         if type(user_id) is not int:
             raise ValueError("Invalid user ID")
     except (KeyError, ValueError, TypeError):
-        raise CasinoError("Сессия недействительна. Заново откройте /casino.", 401) from None
+        raise CasinoError("Сессия недействительна. Заново откройте /play.", 401) from None
     if user_id != owner:
         raise CasinoError("Игра пока доступна только владельцу бота.", 403)
     return user_id

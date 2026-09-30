@@ -147,23 +147,23 @@ def test_http_api_requires_owner_and_ignores_client_payout(tmp_path):
     asyncio.run(scenario())
 
 
-def test_casino_button_is_private_and_requires_https():
+def test_play_button_is_private_and_requires_https():
     bot = object.__new__(ScheduleBot)
-    bot.settings = SimpleNamespace(admin_user_id=OWNER, casino_url="https://casino.example.test/")
+    bot.settings = SimpleNamespace(admin_user_id=OWNER, play_url="https://games.example.test/")
     message = SimpleNamespace(reply_text=AsyncMock())
     update = SimpleNamespace(effective_message=message, effective_user=SimpleNamespace(id=999),
                              effective_chat=SimpleNamespace(type="private"))
-    asyncio.run(bot.open_casino(update, SimpleNamespace()))
+    asyncio.run(bot.open_play(update, SimpleNamespace()))
     message.reply_text.assert_not_awaited()
     update.effective_user.id = OWNER
-    asyncio.run(bot.open_casino(update, SimpleNamespace()))
+    asyncio.run(bot.open_play(update, SimpleNamespace()))
     markup = message.reply_text.await_args.kwargs["reply_markup"]
-    assert markup.inline_keyboard[0][0].web_app.url == bot.settings.casino_url
-    bot.settings.casino_url = "http://insecure.example.test"
+    assert markup.inline_keyboard[0][0].web_app.url == bot.settings.play_url
+    bot.settings.play_url = "http://insecure.example.test"
     message.reply_text.reset_mock()
-    asyncio.run(bot.open_casino(update, SimpleNamespace()))
+    asyncio.run(bot.open_play(update, SimpleNamespace()))
     assert "reply_markup" not in message.reply_text.await_args.kwargs
     update.effective_chat.type = "group"
     message.reply_text.reset_mock()
-    asyncio.run(bot.open_casino(update, SimpleNamespace()))
+    asyncio.run(bot.open_play(update, SimpleNamespace()))
     assert "личном чате" in message.reply_text.await_args.args[0]
