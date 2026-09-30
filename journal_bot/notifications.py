@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 from dataclasses import asdict
 from datetime import date, datetime, time, timedelta
@@ -16,6 +17,64 @@ from .journal import Lesson
 
 LOGGER = logging.getLogger(__name__)
 EKATERINBURG = ZoneInfo("Asia/Yekaterinburg")
+
+
+def _service_field(field: str, value: str) -> bool:
+    value = value.casefold()
+    if field == "room":
+        return "дистант" in value or "дистанц" in value
+    return field == "teacher" and bool(
+        re.search(r"\bпреподаватель\b.*\bпрактик", value)
+    )
+
+
+def schedule_changes(before: list[Lesson], after: list[Lesson]) -> list[str]:
+    """Describe changes by lesson slot, omitting service room/teacher edits."""
+    changes: list[str] = []
+    slots = sorted({(lesson.day, lesson.number) for lesson in before + after})
+    fields = (
+        ("subject", "Предмет"),
+        ("starts_at", "Начало"),
+        ("finishes_at", "Окончание"),
+        ("teacher", "Преподаватель"),
+        ("room", "Аудитория"),
+    )
+    for day, number in slots:
+        old = sorted(
+            (lesson for lesson in before if (lesson.day, lesson.number) == (day, number)),
+            key=lambda lesson: (lesson.subject, lesson.starts_at, lesson.teacher, lesson.room),
+        )
+        new = sorted(
+            (lesson for lesson in after if (lesson.day, lesson.number) == (day, number)),
+            key=lambda lesson: (lesson.subject, lesson.starts_at, lesson.teacher, lesson.room),
+        )
+        # Match identical entries first when a slot contains several lessons.
+        for lesson in old[:]:
+            if lesson in new:
+                old.remove(lesson)
+                new.remove(lesson)
+        paired = min(len(old), len(new))
+        for previous, current in zip(old[:paired], new[:paired]):
+            details = []
+            for field, label in fields:
+                was, now = getattr(previous, field), getattr(current, field)
+                if was != now and not (
+                    _service_field(field, was) or _service_field(field, now)
+                ):
+                    details.append(f"{label}: {was or '—'} → {now or '—'}")
+            if details:
+                changes.append(f"{number}-я пара ({current.subject}):\n" + "\n".join(details))
+        for lesson in old[paired:]:
+            changes.append(
+                f"Убрана {number}-я пара: {lesson.subject} "
+                f"({lesson.starts_at}–{lesson.finishes_at})"
+            )
+        for lesson in new[paired:]:
+            changes.append(
+                f"Добавлена {number}-я пара: {lesson.subject} "
+                f"({lesson.starts_at}–{lesson.finishes_at})"
+            )
+    return changes
 
 
 def watched_day(now: datetime, today_lessons: list[Lesson]) -> date:
@@ -41,10 +100,13 @@ def watched_day(now: datetime, today_lessons: list[Lesson]) -> date:
 
 def schedule_fingerprint(lessons: list[Lesson]) -> str:
     """Ignore API ordering while comparing the visible schedule fields."""
-    rows = [
-        json.dumps(asdict(lesson), default=str, ensure_ascii=False, sort_keys=True)
-        for lesson in lessons
-    ]
+    rows = []
+    for lesson in lessons:
+        row = asdict(lesson)
+        for field in ("room", "teacher"):
+            if _service_field(field, row[field]):
+                row[field] = ""
+        rows.append(json.dumps(row, default=str, ensure_ascii=False, sort_keys=True))
     ordered = json.dumps(sorted(rows), ensure_ascii=False)
     return hashlib.sha256(ordered.encode("utf-8")).hexdigest()
 
@@ -83,30 +145,53 @@ class NotificationStore:
         with self._lock:
             return bool(self._read()["subscribers"])
 
-    def pending(self, day: date, fingerprint: str) -> list[int]:
+    def pending(
+        self, day: date, fingerprint: str, lessons: list[Lesson] | None = None
+    ) -> list[int]:
         key = day.isoformat()
         with self._lock:
             data = self._read()
             observed = data["observed"]
-            if key not in observed:
+            snapshots = data.setdefault("snapshots", {})
+            versions = snapshots.setdefault(key, {})
+            # Old installations have only hashes: establish a baseline once
+            # rather than announcing changes without the previous schedule.
+            missing_baseline = lessons is not None and observed.get(key) not in versions
+            if lessons is not None:
+                versions[fingerprint] = [
+                    {**asdict(lesson), "day": lesson.day.isoformat()} for lesson in lessons
+                ]
+            if key not in observed or missing_baseline:
                 observed[key] = fingerprint
                 for sent in data["subscribers"].values():
                     sent[key] = fingerprint
                 cutoff = (day - timedelta(days=14)).isoformat()
-                for versions in (observed, *data["subscribers"].values()):
-                    for old_key in list(versions):
+                for saved in (observed, snapshots, *data["subscribers"].values()):
+                    for old_key in list(saved):
                         if old_key < cutoff:
-                            del versions[old_key]
+                            del saved[old_key]
                 self._write(data)
                 return []
-            if observed[key] != fingerprint:
+            changed = observed[key] != fingerprint
+            if changed:
                 observed[key] = fingerprint
+            if lessons is not None or changed:
                 self._write(data)
             return [
                 int(user_id)
                 for user_id, sent in data["subscribers"].items()
                 if sent.get(key) != fingerprint
             ]
+
+    def changes_for(self, user_id: int, day: date, lessons: list[Lesson]) -> list[str] | None:
+        with self._lock:
+            data = self._read()
+            previous = data["subscribers"].get(str(user_id), {}).get(day.isoformat())
+            rows = data.get("snapshots", {}).get(day.isoformat(), {}).get(previous)
+        if rows is None:
+            return None
+        before = [Lesson(**{**row, "day": date.fromisoformat(row["day"])}) for row in rows]
+        return schedule_changes(before, lessons)
 
     def mark_sent(self, user_id: int, day: date, fingerprint: str) -> None:
         with self._lock:

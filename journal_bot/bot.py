@@ -20,7 +20,7 @@ from telegram.ext import (
 
 from .cache import ScheduleCache
 from .config import Settings
-from .formatting import format_schedule
+from .formatting import format_change_notification, format_schedule
 from .journal import JournalClient, JournalError, JournalUnavailable, Lesson
 from .notifications import (
     EKATERINBURG,
@@ -281,20 +281,22 @@ class ScheduleBot:
     ) -> None:
         self.cache.store_range(day, day, lessons)
         fingerprint = schedule_fingerprint(lessons)
-        recipients = self.notifications.pending(day, fingerprint)
+        recipients = self.notifications.pending(day, fingerprint, lessons)
         if not recipients:
             return
-        text = (
-            f"🔔 <b>Расписание на {day:%d.%m.%Y} изменилось</b>\n\n"
-            f"{format_schedule(lessons, day, day)}"
-        )
         for user_id in recipients:
             if not self.notifications.is_subscribed(user_id):
                 continue
+            changes = self.notifications.changes_for(user_id, day, lessons)
+            if changes == []:
+                self.notifications.mark_sent(user_id, day, fingerprint)
+                continue
+            messages = format_change_notification(lessons, day, changes)
             try:
-                await context.bot.send_message(
-                    chat_id=user_id, text=text, parse_mode=ParseMode.HTML
-                )
+                for text in messages:
+                    await context.bot.send_message(
+                        chat_id=user_id, text=text, parse_mode=ParseMode.HTML
+                    )
             except Forbidden:
                 LOGGER.info("Removing inaccessible notification subscriber %s", user_id)
                 self.notifications.unsubscribe(user_id)

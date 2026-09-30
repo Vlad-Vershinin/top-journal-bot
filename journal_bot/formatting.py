@@ -44,3 +44,30 @@ def format_schedule(lessons: list[Lesson], start: date, end: date) -> str:
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
+
+def format_change_notification(
+    lessons: list[Lesson], day: date, changes: list[str] | None
+) -> list[str]:
+    """Keep HTML intact when a change description exceeds Telegram's limit."""
+    header = f"🔔 <b>Расписание на {day:%d.%m.%Y} изменилось</b>"
+    details = (
+        "\n\n".join(changes)
+        if changes is not None
+        else "Предыдущая версия недоступна. Ниже — актуальное расписание."
+    )
+    schedule = format_schedule(lessons, day, day)
+    text = f"{header}\n\n{escape(details)}\n\n{schedule}"
+    if len(text.encode("utf-16-le")) // 2 <= 4000:
+        return [text]
+    # Split plain text before escaping: even emoji consume at most two UTF-16
+    # units each, and HTML entities cannot be cut in half.
+    messages = [
+        f"{header}\n\n{escape(details[offset:offset + 1800])}"
+        for offset in range(0, len(details), 1800)
+    ]
+    messages.append(
+        schedule if len(schedule.encode("utf-16-le")) // 2 <= 4000
+        else "Актуальное расписание: /today или /tomorrow."
+    )
+    return messages
+

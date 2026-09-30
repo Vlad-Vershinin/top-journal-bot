@@ -1,16 +1,22 @@
 import asyncio
+from dataclasses import replace
+from html import unescape
+import re
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 from telegram.constants import ParseMode
+from telegram.error import TelegramError
 
 from journal_bot.bot import AFTERNOON_CHECK, MORNING_CHECK, ScheduleBot
 from journal_bot.cache import ScheduleCache
+from journal_bot.formatting import format_change_notification
 from journal_bot.journal import JournalUnavailable, Lesson
 from journal_bot.notifications import (
     NotificationStore,
+    schedule_changes,
     schedule_fingerprint,
     watched_day,
 )
@@ -84,6 +90,108 @@ def test_subscriptions_baseline_changes_and_delivery_survive_restart(tmp_path):
     assert restored.unsubscribe(2)
     assert not restored.unsubscribe(2)
     assert restored.pending(day, "changed") == []
+
+
+def test_change_description_lists_fields_and_added_removed_lessons():
+    day = date(2026, 9, 29)
+    original = Lesson(day, 1, "09:00", "10:30", "Математика", "Иванов", "101")
+    removed = replace(original, number=2)
+    changed = replace(
+        original, starts_at="09:30", finishes_at="11:00", subject="Физика",
+        teacher="Петров", room="102",
+    )
+    added = replace(original, number=3)
+    text = "\n".join(schedule_changes([original, removed], [added, changed]))
+    for expected in (
+        "Предмет: Математика → Физика", "Начало: 09:00 → 09:30",
+        "Окончание: 10:30 → 11:00", "Преподаватель: Иванов → Петров",
+        "Аудитория: 101 → 102", "Убрана 2-я пара", "Добавлена 3-я пара",
+    ):
+        assert expected in text
+    assert schedule_changes([original, removed], [removed, original]) == []
+
+
+def test_service_fields_are_ignored_but_time_changes_are_reported():
+    day = date(2026, 9, 29)
+    original = Lesson(
+        day, 1, "09:00", "10:30", "Математика", "Преподаватель практика 10", "Дистант 1"
+    )
+    changed = replace(original, teacher="ПРЕПОДАВАТЕЛЬ практика №20", room="дистант 2")
+    assert schedule_fingerprint([original]) == schedule_fingerprint([changed])
+    assert schedule_changes([original], [changed]) == []
+    real_fields = replace(original, teacher="Иванов", room="101")
+    assert schedule_changes([original], [real_fields]) == []
+    assert schedule_changes([real_fields], [original]) == []
+    changed = replace(changed, starts_at="09:30")
+    assert schedule_changes([original], [changed]) == [
+        "1-я пара (Математика):\nНачало: 09:00 → 09:30"
+    ]
+
+
+def test_notification_diff_survives_cache_updates_restart_and_send_failure(tmp_path):
+    day = date(2026, 9, 29)
+    original = Lesson(day, 1, "09:00", "10:30", "Математика", "Иванов", "101")
+    changed = replace(original, subject="Физика <теория>", room="102")
+    bot = object.__new__(ScheduleBot)
+    bot.cache = ScheduleCache(tmp_path / "cache.json", ZoneInfo("Asia/Yekaterinburg"))
+    path = tmp_path / "notifications.json"
+    bot.notifications = NotificationStore(path)
+    bot.notifications.subscribe(123)
+    bot.notifications.subscribe(456)
+    context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()))
+    asyncio.run(bot._notify_schedule_change(context, day, [original]))
+    context.bot.send_message.assert_not_awaited()
+    # A manual /today request must not erase the notification baseline.
+    bot.cache.store_range(day, day, [changed])
+    context.bot.send_message.side_effect = [TelegramError("temporary"), None]
+    asyncio.run(bot._notify_schedule_change(context, day, [changed]))
+    assert "Предмет: Математика → Физика &lt;теория&gt;" in (
+        context.bot.send_message.await_args_list[0].kwargs["text"]
+    )
+    bot.notifications = NotificationStore(path)
+    context.bot.send_message.reset_mock()
+    context.bot.send_message.side_effect = None
+    asyncio.run(bot._notify_schedule_change(context, day, [changed]))
+    context.bot.send_message.assert_awaited_once()
+    assert context.bot.send_message.await_args.kwargs["chat_id"] == 123
+    assert "Аудитория: 101 → 102" in context.bot.send_message.await_args.kwargs["text"]
+    context.bot.send_message.reset_mock()
+    asyncio.run(bot._notify_schedule_change(context, day, [changed]))
+    context.bot.send_message.assert_not_awaited()
+
+
+def test_legacy_baseline_migrates_and_service_only_changes_do_not_notify(tmp_path):
+    day = date(2026, 9, 29)
+    original = Lesson(day, 1, "09:00", "10:30", "Математика", "Иванов", "101")
+    path = tmp_path / "notifications.json"
+    store = NotificationStore(path)
+    store.subscribe(123)
+    store.pending(day, "legacy-fingerprint")
+    bot = object.__new__(ScheduleBot)
+    bot.notifications = store
+    bot.cache = ScheduleCache(tmp_path / "cache.json", ZoneInfo("Asia/Yekaterinburg"))
+    context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()))
+    asyncio.run(bot._notify_schedule_change(context, day, [original]))
+    context.bot.send_message.assert_not_awaited()
+    service = replace(original, teacher="Преподаватель практика №7", room="Дистант 1")
+    asyncio.run(bot._notify_schedule_change(context, day, [service]))
+    context.bot.send_message.assert_not_awaited()
+    changed = replace(service, finishes_at="11:00")
+    asyncio.run(bot._notify_schedule_change(context, day, [changed]))
+    context.bot.send_message.assert_awaited_once()
+    assert "Окончание: 10:30 → 11:00" in context.bot.send_message.await_args.kwargs["text"]
+
+
+def test_long_change_notifications_preserve_text_and_fit_telegram_limit():
+    day = date(2026, 9, 29)
+    details = "<Время> 😀 & " * 700
+    messages = format_change_notification([], day, [details])
+    assert len(messages) > 1
+    parts = [unescape(message.split("\n\n", 1)[1]) for message in messages[:-1]]
+    assert "".join(parts) == details
+    for message in messages:
+        plain = unescape(re.sub(r"<[^>]+>", "", message))
+        assert len(plain.encode("utf-16-le")) // 2 <= 4096
 
 
 def test_change_check_sends_once_after_first_observation(tmp_path):
