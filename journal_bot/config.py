@@ -38,7 +38,6 @@ class Settings:
     cache_file: Path
     stats_file: Path
     notifications_file: Path
-    notification_check_minutes: int
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -67,8 +66,5 @@ class Settings:
             stats_file=Path(os.getenv("STATS_FILE", "data/request_stats.json")),
             notifications_file=Path(
                 os.getenv("NOTIFICATIONS_FILE", "data/notifications.json")
-            ),
-            notification_check_minutes=max(
-                1, int(os.getenv("NOTIFICATION_CHECK_MINUTES", "10"))
             ),
         )

@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from html import escape
 from urllib.parse import urlsplit
 
+from apscheduler.triggers.cron import CronTrigger
 from telegram import BotCommand, LinkPreviewOptions, Message, ReplyKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import Forbidden, TelegramError
@@ -42,6 +43,8 @@ SCHEDULE_KEYBOARD = ReplyKeyboardMarkup(
     is_persistent=True,
     input_field_placeholder="Какое расписание показать?",
 )
+MORNING_CHECK = CronTrigger(hour="6-11", minute="*/15", timezone=EKATERINBURG)
+AFTERNOON_CHECK = CronTrigger(hour="12-23", minute="*/30", timezone=EKATERINBURG)
 
 
 class ScheduleBot:
@@ -98,12 +101,15 @@ class ScheduleBot:
 
         if application.job_queue is None:
             raise RuntimeError("Установите зависимость python-telegram-bot[job-queue]")
-        application.job_queue.run_repeating(
-            self.check_schedule_changes,
-            interval=self.settings.notification_check_minutes * 60,
-            first=10,
-            name="schedule_changes",
-        )
+        for name, trigger in (
+            ("schedule_changes_morning", MORNING_CHECK),
+            ("schedule_changes_afternoon", AFTERNOON_CHECK),
+        ):
+            application.job_queue.run_custom(
+                self.check_schedule_changes,
+                job_kwargs={"trigger": trigger, "coalesce": True, "misfire_grace_time": 60},
+                name=name,
+            )
         if self.settings.notification_chat_id is not None:
             application.job_queue.run_daily(
                 self.daily_notification,
@@ -207,7 +213,8 @@ class ScheduleBot:
             if added:
                 reply = (
                     "Уведомления об изменениях включены.\n"
-                    f"Проверяю расписание каждые {self.settings.notification_check_minutes} мин. "
+                    "С 06:00 до 12:00 проверяю каждые 15 минут, после 12:00 — "
+                    "каждые 30 минут. С 00:00 до 06:00 проверок нет. "
                     "До окончания последней пары слежу за сегодня, затем — за завтра. "
                     "Если пары изменятся, пришлю новое расписание.\n"
                     "Отключить: /notifications off"

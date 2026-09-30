@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from telegram.constants import ParseMode
 
-from journal_bot.bot import ScheduleBot
+from journal_bot.bot import AFTERNOON_CHECK, MORNING_CHECK, ScheduleBot
 from journal_bot.cache import ScheduleCache
 from journal_bot.journal import JournalUnavailable, Lesson
 from journal_bot.notifications import (
@@ -29,6 +29,24 @@ def test_watched_day_switches_when_last_lesson_ends():
     assert watched_day(datetime(2026, 9, 29, 14, 30, tzinfo=zone), lessons) == date(
         2026, 9, 30
     )
+
+
+def test_notification_checks_follow_yekaterinburg_daytime_windows():
+    zone = ZoneInfo("Asia/Yekaterinburg")
+
+    def next_check(hour, minute):
+        now = datetime(2026, 9, 29, hour, minute, tzinfo=zone)
+        return min(
+            trigger.get_next_fire_time(None, now)
+            for trigger in (MORNING_CHECK, AFTERNOON_CHECK)
+        )
+
+    assert next_check(0, 0) == datetime(2026, 9, 29, 6, 0, tzinfo=zone)
+    assert next_check(6, 0) == datetime(2026, 9, 29, 6, 0, tzinfo=zone)
+    assert next_check(11, 1) == datetime(2026, 9, 29, 11, 15, tzinfo=zone)
+    assert next_check(11, 46) == datetime(2026, 9, 29, 12, 0, tzinfo=zone)
+    assert next_check(12, 1) == datetime(2026, 9, 29, 12, 30, tzinfo=zone)
+    assert next_check(23, 31) == datetime(2026, 9, 30, 6, 0, tzinfo=zone)
 
 
 def test_watched_day_with_no_lessons_or_missing_end_time():
