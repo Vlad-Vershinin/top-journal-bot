@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import hmac
 import json
+import sqlite3
 import time
 from types import SimpleNamespace
 from urllib.parse import urlencode
@@ -125,7 +126,7 @@ def test_http_api_requires_owner_and_ignores_client_payout(tmp_path):
             response = await client.get("/")
             assert response.status == 200
             assert "FRUIT CLUB" in await response.text()
-            for action in ("state", "spin", "refill"):
+            for action in ("state", "spin", "refill", "leaderboard", "history"):
                 response = await client.post(f"/api/{action}", json={"init_data": signed_data(999)})
                 assert response.status == 403
                 response = await client.post(f"/api/{action}", json={})
@@ -144,6 +145,8 @@ def test_http_api_requires_owner_and_ignores_client_payout(tmp_path):
             assert await response.json() == result
             assert (await client.get("/assets/not-a-file")).status == 404
             assert (await client.get("/.env")).status == 404
+            response = await client.post("/api/state", json={"init_data": signed_data(), "user": {"id": 999, "first_name": "Fake"}})
+            assert (await response.json())["profile"]["name"] == "Test"
     asyncio.run(scenario())
 
 
@@ -167,3 +170,55 @@ def test_play_button_is_private_and_requires_https():
     message.reply_text.reset_mock()
     asyncio.run(bot.open_play(update, SimpleNamespace()))
     assert "личном чате" in message.reply_text.await_args.args[0]
+
+
+def test_leaderboard_uses_shared_balances_and_deterministic_ties(tmp_path):
+    store = CasinoStore(tmp_path / "games.sqlite3")
+    for user_id, name in ((123, "Alice"), (456, "Bob"), (789, "Carol")):
+        store.update_profile({"id": user_id, "first_name": name, "photo_url": "https://t.me/i/userpic/test.jpg"})
+        store.state(user_id)
+    with patch("journal_bot.casino.secrets.randbelow", side_effect=[5, 5, 5]):
+        store.spin(456, 25, str(uuid4()))
+    board = store.leaderboard(789)
+    assert [player["user_id"] for player in board["players"]] == [456, 123, 789]
+    assert [player["rank"] for player in board["players"]] == [1, 2, 3]
+    assert board["me"]["rank"] == store.state(789)["rank"] == 3
+    assert board["total"] == 3
+    assert store.state(123)["profile"]["name"] == "Alice"
+    store.update_profile({"id": 123, "first_name": "Alice Updated", "photo_url": "javascript:alert(1)"})
+    assert store.state(123)["profile"]["photo_url"] == ""
+
+
+def test_legacy_games_migrate_without_losing_history_or_balance(tmp_path):
+    path = tmp_path / "games.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE spins(request_id TEXT PRIMARY KEY,user_id INTEGER,bet INTEGER,result TEXT,created REAL)")
+        db.execute("INSERT INTO spins VALUES (?,?,?,?,?)", (str(uuid4()), OWNER, 10, json.dumps({"net": -10}), 100000))
+    store = CasinoStore(path)
+    state = store.state(OWNER)
+    assert state["balance"] == 1000
+    assert state["history"][0]["mode"] == "fruit_slots"
+    assert state["history"][0]["created"] == 100000
+    # A normal new game still works after the old table has gained its mode column.
+    with patch("journal_bot.casino.secrets.randbelow", side_effect=[0, 1, 2]):
+        store.spin(OWNER, 10, str(uuid4()))
+    assert CasinoStore(path).state(OWNER)["balance"] == 990
+
+
+def test_history_paginates_all_games_in_reverse_order(tmp_path):
+    store = CasinoStore(tmp_path / "games.sqlite3")
+    for index in range(23):
+        with patch("journal_bot.casino.time.time", return_value=100000 + 3 * index), patch(
+            "journal_bot.casino.secrets.randbelow", side_effect=[0, 1, 2]
+        ):
+            store.spin(OWNER, 10, str(uuid4()))
+    first = store.history(OWNER)
+    second = store.history(OWNER, first["next_offset"])
+    assert len(first["items"]) == 20 and len(second["items"]) == 3
+    assert second["next_offset"] is None
+    assert first["items"][0]["created"] > second["items"][0]["created"]
+    assert all(item["mode"] == "fruit_slots" and item["net"] == -10 for item in first["items"])
+    assert store.history(999)["items"] == []
+    for offset in (-1, True, "0"):
+        with pytest.raises(CasinoError):
+            store.history(OWNER, offset)
