@@ -16,6 +16,7 @@ import pytest
 from journal_bot.bot import ScheduleBot
 from journal_bot.casino import CasinoError, CasinoStore, multiplier, validate_init_data
 from journal_bot.casino_server import create_app
+from journal_bot.config import Settings, can_play
 
 
 TOKEN = "123:test-token-not-a-real-bot"
@@ -170,6 +171,53 @@ def test_play_button_is_private_and_requires_https():
     message.reply_text.reset_mock()
     asyncio.run(bot.open_play(update, SimpleNamespace()))
     assert "личном чате" in message.reply_text.await_args.args[0]
+
+
+def test_invited_player_can_open_play():
+    bot = object.__new__(ScheduleBot)
+    bot.settings = SimpleNamespace(admin_user_id=OWNER, play_tester_ids=(456,),
+                                   play_url="https://games.example.test/")
+    message = SimpleNamespace(reply_text=AsyncMock())
+    update = SimpleNamespace(effective_message=message, effective_user=SimpleNamespace(id=456),
+                             effective_chat=SimpleNamespace(type="private"))
+    asyncio.run(bot.open_play(update, SimpleNamespace()))
+    assert message.reply_text.await_args.kwargs["reply_markup"].inline_keyboard[0][0].web_app
+    assert not can_play(789, OWNER, (456,))
+    assert not can_play(456, None, (456,))
+
+
+def test_tester_access_is_checked_on_every_api_action(tmp_path):
+    settings = SimpleNamespace(casino_db_file=tmp_path / "games.sqlite3", admin_user_id=OWNER,
+                               telegram_bot_token=TOKEN, play_tester_ids=(456,))
+
+    async def scenario():
+        async with TestClient(TestServer(create_app(settings))) as client:
+            for action in ("state", "leaderboard", "history"):
+                response = await client.post(f"/api/{action}", json={"init_data": signed_data(456)})
+                assert response.status == 200
+            response = await client.post("/api/spin", json={"init_data": signed_data(456),
+                                                          "bet": 10, "request_id": str(uuid4())})
+            assert response.status == 200
+            response = await client.post("/api/refill", json={"init_data": signed_data(456)})
+            assert response.status == 409  # Authorized, but balance is too high for a refill.
+            for action in ("state", "spin", "refill", "leaderboard", "history"):
+                response = await client.post(f"/api/{action}", json={"init_data": signed_data(789)})
+                assert response.status == 403
+            settings.play_tester_ids = ()
+            response = await client.post("/api/state", json={"init_data": signed_data(456)})
+            assert response.status == 403
+    asyncio.run(scenario())
+
+
+def test_tester_ids_env(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", TOKEN)
+    monkeypatch.setenv("JOURNAL_USERNAME", "test")
+    monkeypatch.setenv("JOURNAL_PASSWORD", "test")
+    monkeypatch.setenv("PLAY_TESTER_IDS", "456, 789, ,456")
+    with patch("journal_bot.config.load_dotenv"):
+        assert Settings.from_env().play_tester_ids == (456, 789, 456)
+        monkeypatch.setenv("PLAY_TESTER_IDS", "")
+        assert Settings.from_env().play_tester_ids == ()
 
 
 def test_leaderboard_uses_shared_balances_and_deterministic_ties(tmp_path):

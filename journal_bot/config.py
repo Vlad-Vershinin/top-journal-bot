@@ -21,6 +21,10 @@ def _required(name: str) -> str:
     return value
 
 
+def can_play(user_id: int, owner: int | None, testers: tuple[int, ...] = ()) -> bool:
+    return owner is not None and (user_id == owner or user_id in testers)
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     telegram_bot_token: str
@@ -40,6 +44,7 @@ class Settings:
     notifications_file: Path
     play_url: str | None = None
     casino_db_file: Path = Path("data/casino.sqlite3")
+    play_tester_ids: tuple[int, ...] = ()
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -71,4 +76,8 @@ class Settings:
             ),
             play_url=(os.getenv("PLAY_URL", "").strip() or os.getenv("CASINO_URL", "").strip() or None),
             casino_db_file=Path(os.getenv("CASINO_DB_FILE", "data/casino.sqlite3")),
+            play_tester_ids=tuple(
+                int(value.strip()) for value in os.getenv("PLAY_TESTER_IDS", "").split(",")
+                if value.strip()
+            ),
         )

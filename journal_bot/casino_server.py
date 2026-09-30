@@ -47,7 +47,8 @@ def create_app(settings: Settings) -> web.Application:
         if not isinstance(body, dict):
             raise CasinoError("Некорректный запрос.")
         user = validated_user(
-            body.get("init_data"), settings.telegram_bot_token, settings.admin_user_id
+            body.get("init_data"), settings.telegram_bot_token, settings.admin_user_id,
+            testers=getattr(settings, "play_tester_ids", ()),
         )
         user_id = user["id"]
         await asyncio.to_thread(store.update_profile, user)

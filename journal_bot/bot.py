@@ -22,7 +22,7 @@ from telegram.ext import (
 )
 
 from .cache import ScheduleCache
-from .config import Settings
+from .config import Settings, can_play
 from .formatting import format_change_notification, format_schedule
 from .journal import JournalClient, JournalError, JournalUnavailable, Lesson
 from .notifications import (
@@ -387,7 +387,9 @@ class ScheduleBot:
 
     async def open_play(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         message, user, chat = update.effective_message, update.effective_user, update.effective_chat
-        if message is None or user is None or user.id != self.settings.admin_user_id:
+        if message is None or user is None or not can_play(
+            user.id, self.settings.admin_user_id, getattr(self.settings, "play_tester_ids", ())
+        ):
             return
         if chat is None or chat.type != "private":
             await message.reply_text("Откройте /play в личном чате с ботом.")
@@ -403,7 +405,7 @@ class ScheduleBot:
         await message.reply_text(
             "🎮 Play Room — мини-игры.\n"
             "Выбирай режим, собирай монеты и поднимайся в топе. "
-            "Доступ пока только у тебя.",
+            "Сейчас идёт закрытый тест.",
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton("🎮 Открыть мини-игры", web_app=WebAppInfo(url=url))
             ]]),

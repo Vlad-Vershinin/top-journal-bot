@@ -13,6 +13,8 @@ from urllib.parse import urlsplit
 from typing import Iterator
 from uuid import UUID
 
+from .config import can_play
+
 
 SYMBOLS = ("🍌", "🍒", "🍋", "🍇", "🍉", "⭐")
 TRIPLES = (8, 10, 12, 15, 20, 40)
@@ -27,7 +29,8 @@ class CasinoError(Exception):
         self.status = status
 
 
-def validated_user(raw: str, token: str, owner: int | None, now: float | None = None) -> dict:
+def validated_user(raw: str, token: str, owner: int | None, now: float | None = None,
+                   *, testers: tuple[int, ...] = ()) -> dict:
     """Validate Telegram's HMAC before using the user ID (never initDataUnsafe)."""
     if owner is None or not isinstance(raw, str) or not raw or len(raw) > 8192:
         raise CasinoError("Откройте мини-игры через /play в Telegram.", 401)
@@ -52,8 +55,8 @@ def validated_user(raw: str, token: str, owner: int | None, now: float | None = 
             raise ValueError("Invalid user ID")
     except (KeyError, ValueError, TypeError):
         raise CasinoError("Сессия недействительна. Заново откройте /play.", 401) from None
-    if user_id != owner:
-        raise CasinoError("Игра пока доступна только владельцу бота.", 403)
+    if not can_play(user_id, owner, testers):
+        raise CasinoError("Мини-игры доступны только участникам закрытого теста.", 403)
     return user
 
 
