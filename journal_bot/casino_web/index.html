@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="robots" content="noindex,nofollow" />
+    <meta name="theme-color" content="#101b18" />
+    <title>Fruit Club · Закрытый тест</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <span class="brand"><span class="brand-mark">🍌</span> FRUIT CLUB</span
+        ><span class="private-tag">ЗАКРЫТЫЙ ТЕСТ</span>
+      </header>
+      <section class="intro">
+        <p class="eyebrow">Всё решают три барабана</p>
+        <h1>Лови свою<br /><span>комбинацию.</span></h1>
+        <p class="subtitle">
+          Немного удачи. Много фруктов.<br />И ни копейки настоящих денег.
+        </p>
+      </section>
+      <section class="wallet" aria-label="Виртуальный баланс">
+        <div>
+          <span class="label">ТВОЙ БАЛАНС</span>
+          <div class="balance">
+            <span id="balance">—</span><span class="coin">✦</span>
+          </div>
+        </div>
+        <span class="wallet-note">Только<br />виртуальные очки</span>
+      </section>
+      <section class="machine" aria-label="Игровой автомат">
+        <div class="machine-top">
+          <span><span class="live-dot"></span> FRUIT SLOTS</span
+          ><span>01 / ОДНА ЛИНИЯ</span>
+        </div>
+        <div
+          class="reels"
+          role="img"
+          aria-label="Три барабана с фруктами"
+          id="reels"
+        >
+          <div class="reel">
+            <div class="strip">
+              <span>🍒</span><span>🍌</span><span>🍉</span>
+            </div>
+          </div>
+          <div class="reel">
+            <div class="strip">
+              <span>🍋</span><span>🍌</span><span>🍇</span>
+            </div>
+          </div>
+          <div class="reel">
+            <div class="strip">
+              <span>⭐</span><span>🍌</span><span>🍒</span>
+            </div>
+          </div>
+          <div class="payline" aria-hidden="true"></div>
+        </div>
+        <p id="result" class="result" role="status" aria-live="polite">
+          Проверяем доступ…
+        </p>
+        <div class="bet-heading">
+          <span>Ставка за вращение</span><span>✦ очки</span>
+        </div>
+        <div class="bets" aria-label="Выберите ставку">
+          <button type="button" data-bet="10" disabled>10</button
+          ><button
+            type="button"
+            data-bet="25"
+            class="selected"
+            aria-pressed="true"
+            disabled
+          >
+            25</button
+          ><button type="button" data-bet="50" disabled>50</button
+          ><button type="button" data-bet="100" disabled>100</button>
+        </div>
+        <button id="spin" class="spin" type="button" disabled>
+          <span>Крутить барабаны</span><span class="spin-cost">25 ✦ ↗</span>
+        </button>
+        <button id="refill" class="refill" type="button" hidden>
+          Получить бесплатные 1 000 очков
+        </button>
+        <p id="error" class="error" role="alert" hidden></p>
+        <p class="machine-foot">Прогресс сохраняется. Играй в своём темпе.</p>
+      </section>
+      <section class="session">
+        <div>
+          <span class="label">ВРАЩЕНИЙ</span><strong id="spins">—</strong>
+        </div>
+        <div>
+          <span class="label">ПОЛУЧЕНО ОЧКОВ</span><strong id="won">—</strong>
+        </div>
+      </section>
+      <details class="rules">
+        <summary>Как собрать выигрыш <span>+</span></summary>
+        <p>
+          Три одинаковых фрукта дают множитель ставки. Любые два одинаковых —
+          ×2. Выигрыш включает ставку. Случайные символы имеют одинаковую
+          вероятность.
+        </p>
+        <div id="paytable" class="paytable">
+          <span>🍌🍌🍌 <b>×8</b></span
+          ><span>🍒🍒🍒 <b>×10</b></span
+          ><span>🍋🍋🍋 <b>×12</b></span
+          ><span>🍇🍇🍇 <b>×15</b></span
+          ><span>🍉🍉🍉 <b>×20</b></span
+          ><span>⭐⭐⭐ <b>×40</b></span>
+        </div>
+        <p>
+          На старте — 1 000 очков. Если осталось меньше 10, можно получить
+          бесплатный бонус не чаще раза в 24 часа. Покупок, платежей и вывода
+          нет.
+        </p>
+      </details>
+      <section class="history-section">
+        <div class="section-title">
+          <h2>Последние вращения</h2>
+          <span>10 ПОСЛЕДНИХ</span>
+        </div>
+        <ol id="history" class="history">
+          <li class="empty">Здесь появятся твои комбинации.</li>
+        </ol>
+      </section>
+      <footer>FRUIT CLUB <span>•</span> Игра ради игры</footer>
+    </main>
+  </body>
+</html>

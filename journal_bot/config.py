@@ -38,6 +38,8 @@ class Settings:
     cache_file: Path
     stats_file: Path
     notifications_file: Path
+    casino_url: str | None = None
+    casino_db_file: Path = Path("data/casino.sqlite3")
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -67,4 +69,6 @@ class Settings:
             notifications_file=Path(
                 os.getenv("NOTIFICATIONS_FILE", "data/notifications.json")
             ),
+            casino_url=os.getenv("CASINO_URL", "").strip() or None,
+            casino_db_file=Path(os.getenv("CASINO_DB_FILE", "data/casino.sqlite3")),
         )

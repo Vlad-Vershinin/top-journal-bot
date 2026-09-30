@@ -6,7 +6,10 @@ from html import escape
 from urllib.parse import urlsplit
 
 from apscheduler.triggers.cron import CronTrigger
-from telegram import BotCommand, LinkPreviewOptions, Message, ReplyKeyboardMarkup, Update
+from telegram import (
+    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions,
+    Message, ReplyKeyboardMarkup, Update, WebAppInfo,
+)
 from telegram.constants import MessageEntityType, ParseMode
 from telegram.error import BadRequest, Forbidden, TelegramError
 from telegram.ext import (
@@ -98,6 +101,7 @@ class ScheduleBot:
         )
         application.add_handler(CommandHandler("stats", self.show_stats))
         application.add_handler(CommandHandler("github_icon", self.set_github_icon))
+        application.add_handler(CommandHandler("casino", self.open_casino))
         application.add_error_handler(self.on_error)
 
         if application.job_queue is None:
@@ -380,6 +384,30 @@ class ScheduleBot:
                 f"Chat ID: {update.effective_chat.id if update.effective_chat else '—'}",
                 reply_markup=SCHEDULE_KEYBOARD,
             )
+
+    async def open_casino(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        message, user, chat = update.effective_message, update.effective_user, update.effective_chat
+        if message is None or user is None or user.id != self.settings.admin_user_id:
+            return
+        if chat is None or chat.type != "private":
+            await message.reply_text("Откройте /casino в личном чате с ботом.")
+            return
+        url = self.settings.casino_url
+        parsed = urlsplit(url or "")
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            await message.reply_text(
+                "Mini App подготовлена. Для запуска нужно подключить HTTPS-адрес "
+                "и указать его в CASINO_URL на сервере."
+            )
+            return
+        await message.reply_text(
+            "🎰 Fruit Club — закрытый тест.\n"
+            "Три барабана, фрукты и 1 000 виртуальных очков на старте. "
+            "Очки нельзя купить или вывести. Доступ пока только у тебя.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🎰 Открыть Fruit Club", web_app=WebAppInfo(url=url))
+            ]]),
+        )
 
     async def show_stats(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
