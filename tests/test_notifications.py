@@ -277,7 +277,7 @@ def test_cancelling_last_lesson_is_reported_before_switching_to_tomorrow(tmp_pat
     assert "Занятий нет" in context.bot.messages[0]["text"]
 
 
-def test_feedback_has_octopus_and_no_link_preview():
+def test_feedback_has_octopus_and_no_link_preview(tmp_path):
     class FakeMessage:
         calls = []
 
@@ -285,7 +285,9 @@ def test_feedback_has_octopus_and_no_link_preview():
             self.calls.append((text, kwargs))
 
     message = FakeMessage()
-    asyncio.run(ScheduleBot._reply_notification_feedback(message, "Подписка включена."))
+    bot = object.__new__(ScheduleBot)
+    bot.notifications = NotificationStore(tmp_path / "notifications.json")
+    asyncio.run(bot._reply_notification_feedback(message, "Подписка включена."))
     text, options = message.calls[0]
     assert '🐙 <a href=' in text
     assert 'href="https://github.com/Vlad-Vershinin/top-journal-bot/issues/new"' in text

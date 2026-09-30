@@ -7,8 +7,8 @@ from urllib.parse import urlsplit
 
 from apscheduler.triggers.cron import CronTrigger
 from telegram import BotCommand, LinkPreviewOptions, Message, ReplyKeyboardMarkup, Update
-from telegram.constants import ParseMode
-from telegram.error import Forbidden, TelegramError
+from telegram.constants import MessageEntityType, ParseMode
+from telegram.error import BadRequest, Forbidden, TelegramError
 from telegram.ext import (
     Application,
     ApplicationBuilder,
@@ -97,6 +97,7 @@ class ScheduleBot:
             CommandHandler(("notifications", "notification"), self.manage_notifications)
         )
         application.add_handler(CommandHandler("stats", self.show_stats))
+        application.add_handler(CommandHandler("github_icon", self.set_github_icon))
         application.add_error_handler(self.on_error)
 
         if application.job_queue is None:
@@ -241,13 +242,78 @@ class ScheduleBot:
             await message.reply_text("Использование: /notifications [on|off|status]")
 
     @staticmethod
-    async def _reply_notification_feedback(message: Message, reply: str) -> None:
-        await message.reply_text(
-            f"{reply}\n\n{NOTIFICATION_FEEDBACK}",
-            parse_mode=ParseMode.HTML,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-            reply_markup=SCHEDULE_KEYBOARD,
+    def _feedback_with_icon(icon: dict[str, str] | None) -> str:
+        if icon is None:
+            return NOTIFICATION_FEEDBACK
+        markup = f'<tg-emoji emoji-id="{escape(icon["id"], quote=True)}">{escape(icon["emoji"])}</tg-emoji>'
+        return NOTIFICATION_FEEDBACK.replace("🐙", markup, 1)
+
+    async def _reply_notification_feedback(self, message: Message, reply: str) -> None:
+        icon = self.notifications.github_icon()
+        options = {
+            "parse_mode": ParseMode.HTML,
+            "link_preview_options": LinkPreviewOptions(is_disabled=True),
+            "reply_markup": SCHEDULE_KEYBOARD,
+        }
+        try:
+            await message.reply_text(
+                f"{reply}\n\n{self._feedback_with_icon(icon)}", **options
+            )
+        except BadRequest:
+            if icon is None:
+                raise
+            LOGGER.warning("Custom GitHub emoji rejected; using fallback")
+            await message.reply_text(f"{reply}\n\n{NOTIFICATION_FEEDBACK}", **options)
+
+    async def set_github_icon(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        message, user, chat = update.effective_message, update.effective_user, update.effective_chat
+        owner = self.settings.admin_user_id
+        if message is None or user is None or owner is None or user.id != owner:
+            return
+        if chat is None or chat.type != "private":
+            await message.reply_text("Настройте иконку в личном чате с ботом.")
+            return
+        if context.args == ["off"]:
+            self.notifications.set_github_icon(None)
+            await message.reply_text("Вернул 🐙 перед ссылкой на GitHub.")
+            return
+        emoji_id = next(
+            (entity.custom_emoji_id for entity in (message.entities or ())
+             if entity.type == MessageEntityType.CUSTOM_EMOJI), None
         )
+        if emoji_id is None and context.args:
+            candidate = context.args[0]
+            if candidate.isascii() and candidate.isdigit():
+                emoji_id = candidate
+        if emoji_id is None:
+            await message.reply_text(
+                "Отправьте /github_icon и рядом пользовательский эмодзи GitHub "
+                "в одном сообщении. Можно указать custom_emoji_id числом.\n"
+                "Вернуть осьминога: /github_icon off"
+            )
+            return
+        try:
+            stickers = await context.bot.get_custom_emoji_stickers([emoji_id])
+            if not stickers or stickers[0].custom_emoji_id != emoji_id or not stickers[0].emoji:
+                await message.reply_text("Не удалось найти этот пользовательский эмодзи.")
+                return
+            icon = {"id": emoji_id, "emoji": stickers[0].emoji}
+            await message.reply_text(
+                f"Предпросмотр:\n\n{self._feedback_with_icon(icon)}",
+                parse_mode=ParseMode.HTML,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+            )
+        except TelegramError:
+            LOGGER.warning("Could not validate custom GitHub emoji")
+            await message.reply_text(
+                "Не удалось проверить иконку. Попробуйте ещё раз и убедитесь, "
+                "что Premium активен у владельца бота в BotFather. Настройка не изменена."
+            )
+            return
+        self.notifications.set_github_icon(icon)
+        await message.reply_text("Иконка сохранена. Проверьте её командой /notifications status.")
 
     async def check_schedule_changes(self, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not self.notifications.has_subscribers():

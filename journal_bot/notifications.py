@@ -145,6 +145,27 @@ class NotificationStore:
         with self._lock:
             return bool(self._read()["subscribers"])
 
+    def github_icon(self) -> dict[str, str] | None:
+        with self._lock:
+            icon = self._read().get("github_icon")
+        if (
+            isinstance(icon, dict)
+            and isinstance(icon.get("id"), str)
+            and icon["id"].isascii() and icon["id"].isdigit()
+            and isinstance(icon.get("emoji"), str) and icon["emoji"]
+        ):
+            return icon
+        return None
+
+    def set_github_icon(self, icon: dict[str, str] | None) -> None:
+        with self._lock:
+            data = self._read()
+            if icon is None:
+                data.pop("github_icon", None)
+            else:
+                data["github_icon"] = icon
+            self._write(data)
+
     def pending(
         self, day: date, fingerprint: str, lessons: list[Lesson] | None = None
     ) -> list[int]:
