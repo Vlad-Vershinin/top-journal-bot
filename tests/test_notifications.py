@@ -128,6 +128,26 @@ def test_service_fields_are_ignored_but_time_changes_are_reported():
     ]
 
 
+def test_self_study_teacher_labels_are_service_fields():
+    original = Lesson(date(2026, 10, 5), 1, "07:30", "08:30", "Иностранный язык",
+                      "Самостоятельная работа3", "Дистант 4")
+    for teacher in ("Самостоятельная работа4", "Самостоятельная работа № 5",
+                    "САМОСТОЯТЕЛЬНАЯ РАБОТА N6", "Самостоятельная работа No7",
+                    "Преподаватель практика8"):
+        changed = replace(original, teacher=teacher)
+        assert schedule_fingerprint([original]) == schedule_fingerprint([changed])
+        assert schedule_changes([original], [changed]) == []
+    changed = replace(original, starts_at="08:00")
+    assert schedule_changes([original], [changed]) == [
+        "1-я пара (Иностранный язык):\nНачало: 07:30 → 08:00"
+    ]
+    assert schedule_changes([original], []) == [
+        "Убрана 1-я пара: Иностранный язык (07:30–08:30)"
+    ]
+    actual_teacher = replace(original, teacher="Иванов")
+    assert schedule_changes([actual_teacher], [replace(actual_teacher, teacher="Петров")])
+
+
 def test_notification_diff_survives_cache_updates_restart_and_send_failure(tmp_path):
     day = date(2026, 9, 29)
     original = Lesson(day, 1, "09:00", "10:30", "Математика", "Иванов", "101")

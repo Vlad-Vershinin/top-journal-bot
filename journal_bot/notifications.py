@@ -24,7 +24,7 @@ def _service_field(field: str, value: str) -> bool:
     if field == "room":
         return "дистант" in value or "дистанц" in value
     return field == "teacher" and bool(
-        re.search(r"\bпреподаватель\b.*\bпрактик", value)
+        re.search(r"\bпреподаватель\b.*\bпрактик|\bсамостоятельная\s+работа", value)
     )
 
 
