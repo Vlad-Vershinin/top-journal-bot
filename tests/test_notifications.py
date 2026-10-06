@@ -133,6 +133,29 @@ def test_remote_room_numbers_are_ignored_but_mode_changes_are_reported():
     ]
 
 
+def test_in_person_to_remote_change_is_not_suppressed(tmp_path):
+    day = date(2026, 10, 6)
+    original = Lesson(day, 3, "11:50", "13:20",
+                      "Правовое обеспечение профессиональной деятельности РПО",
+                      "Прокопец Анна Борисовна", "Ауд №904 (Фурманова 109)")
+    remote = replace(original, room="Дистант 3")
+    assert schedule_fingerprint([original]) != schedule_fingerprint([remote])
+    for before, after in ((original, remote), (remote, original)):
+        expected = [f"3-я пара ({original.subject}):\nАудитория: "
+                    + ("Дистант → " + original.room if before == remote else original.room + " → Дистант")]
+        assert schedule_changes([before], [after]) == expected
+        store = NotificationStore(tmp_path / "notifications.json")
+        store.subscribe(123)
+        fingerprint = schedule_fingerprint([before])
+        store.pending(day, fingerprint, [before])
+        store.mark_sent(123, day, fingerprint)
+        assert store.pending(day, schedule_fingerprint([after]), [after]) == [123]
+        assert store.changes_for(123, day, [after]) == expected
+    renumbered = replace(remote, room="Дистант 4")
+    assert schedule_changes([remote], [renumbered]) == []
+    assert schedule_fingerprint([remote]) == schedule_fingerprint([renumbered])
+
+
 def test_self_study_teacher_labels_are_service_fields():
     original = Lesson(date(2026, 10, 5), 1, "07:30", "08:30", "Иностранный язык",
                       "Самостоятельная работа3", "Дистант 4")
