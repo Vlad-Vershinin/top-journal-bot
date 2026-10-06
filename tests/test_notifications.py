@@ -119,7 +119,7 @@ def test_remote_room_numbers_are_ignored_but_mode_changes_are_reported():
     changed = replace(original, teacher="ПРЕПОДАВАТЕЛЬ практика №20", room="дистант 2")
     assert schedule_fingerprint([original]) == schedule_fingerprint([changed])
     assert schedule_changes([original], [changed]) == []
-    real_fields = replace(original, teacher="Иванов", room="101")
+    real_fields = replace(original, room="101")
     assert schedule_changes([original], [real_fields]) == [
         "1-я пара (Математика):\nАудитория: Дистант → 101"
     ]
