@@ -21,11 +21,20 @@ EKATERINBURG = ZoneInfo("Asia/Yekaterinburg")
 
 def _service_field(field: str, value: str) -> bool:
     value = value.casefold()
-    if field == "room":
-        return "дистант" in value or "дистанц" in value
     return field == "teacher" and bool(
         re.search(r"\bпреподаватель\b.*\bпрактик|\bсамостоятельная\s+работа", value)
     )
+
+
+def _normalized_field(field: str, value: str) -> str:
+    """Normalize noisy API values while preserving meaningful schedule changes."""
+    if field == "room":
+        folded = value.casefold()
+        if "дистант" in folded or "дистанц" in folded:
+            return "Дистант"
+    if _service_field(field, value):
+        return ""
+    return value
 
 
 def schedule_changes(before: list[Lesson], after: list[Lesson]) -> list[str]:
@@ -58,10 +67,12 @@ def schedule_changes(before: list[Lesson], after: list[Lesson]) -> list[str]:
             details = []
             for field, label in fields:
                 was, now = getattr(previous, field), getattr(current, field)
-                if was != now and not (
-                    _service_field(field, was) or _service_field(field, now)
-                ):
-                    details.append(f"{label}: {was or '—'} → {now or '—'}")
+                normalized_was = _normalized_field(field, was)
+                normalized_now = _normalized_field(field, now)
+                if normalized_was != normalized_now:
+                    details.append(
+                        f"{label}: {normalized_was or '—'} → {normalized_now or '—'}"
+                    )
             if details:
                 changes.append(f"{number}-я пара ({current.subject}):\n" + "\n".join(details))
         for lesson in old[paired:]:
@@ -104,8 +115,7 @@ def schedule_fingerprint(lessons: list[Lesson]) -> str:
     for lesson in lessons:
         row = asdict(lesson)
         for field in ("room", "teacher"):
-            if _service_field(field, row[field]):
-                row[field] = ""
+            row[field] = _normalized_field(field, row[field])
         rows.append(json.dumps(row, default=str, ensure_ascii=False, sort_keys=True))
     ordered = json.dumps(sorted(rows), ensure_ascii=False)
     return hashlib.sha256(ordered.encode("utf-8")).hexdigest()
