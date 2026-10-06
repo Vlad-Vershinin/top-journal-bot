@@ -67,6 +67,8 @@ def schedule_changes(before: list[Lesson], after: list[Lesson]) -> list[str]:
             details = []
             for field, label in fields:
                 was, now = getattr(previous, field), getattr(current, field)
+                if _service_field(field, was) or _service_field(field, now):
+                    continue
                 normalized_was = _normalized_field(field, was)
                 normalized_now = _normalized_field(field, now)
                 if normalized_was != normalized_now:
