@@ -111,7 +111,7 @@ def test_change_description_lists_fields_and_added_removed_lessons():
     assert schedule_changes([original, removed], [removed, original]) == []
 
 
-def test_service_fields_are_ignored_but_time_changes_are_reported():
+def test_remote_room_numbers_are_ignored_but_mode_changes_are_reported():
     day = date(2026, 9, 29)
     original = Lesson(
         day, 1, "09:00", "10:30", "Математика", "Преподаватель практика 10", "Дистант 1"
@@ -120,8 +120,13 @@ def test_service_fields_are_ignored_but_time_changes_are_reported():
     assert schedule_fingerprint([original]) == schedule_fingerprint([changed])
     assert schedule_changes([original], [changed]) == []
     real_fields = replace(original, teacher="Иванов", room="101")
-    assert schedule_changes([original], [real_fields]) == []
-    assert schedule_changes([real_fields], [original]) == []
+    assert schedule_changes([original], [real_fields]) == [
+        "1-я пара (Математика):\nАудитория: Дистант → 101"
+    ]
+    assert schedule_changes([real_fields], [original]) == [
+        "1-я пара (Математика):\nАудитория: 101 → Дистант"
+    ]
+    assert schedule_fingerprint([original]) != schedule_fingerprint([real_fields])
     changed = replace(changed, starts_at="09:30")
     assert schedule_changes([original], [changed]) == [
         "1-я пара (Математика):\nНачало: 09:00 → 09:30"
@@ -193,7 +198,7 @@ def test_legacy_baseline_migrates_and_service_only_changes_do_not_notify(tmp_pat
     context = SimpleNamespace(bot=SimpleNamespace(send_message=AsyncMock()))
     asyncio.run(bot._notify_schedule_change(context, day, [original]))
     context.bot.send_message.assert_not_awaited()
-    service = replace(original, teacher="Преподаватель практика №7", room="Дистант 1")
+    service = replace(original, teacher="Преподаватель практика №7")
     asyncio.run(bot._notify_schedule_change(context, day, [service]))
     context.bot.send_message.assert_not_awaited()
     changed = replace(service, finishes_at="11:00")
